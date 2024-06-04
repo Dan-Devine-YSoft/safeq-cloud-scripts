@@ -1,3 +1,9 @@
+############### Use Case ###################
+# This script leverages the 'Create User' API function documented here:  https://docs.ysoft.cloud/api/api-functions#APIFunctions-Createuser
+# The script will parse a supplied CSV and create a new user with the additional fields described below
+# The script is only capable of new user creation.  It will not modify existing users, or delete/overwrite content
+# This script is designed to be used as a starting place for any user creation requirement and can be extended/modified as needed
+
 ############## Configuration ###############
 $customerDomain = "domain"
 $apiKey="api-key" # Needs to have extended rights [ViewUser, CreateUser], Allow unauthenticated requests and Allow untrusted endpoints
