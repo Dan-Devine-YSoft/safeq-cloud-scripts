@@ -1,7 +1,7 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$apiKey = "addapikeyhere" # API key requires ViewReport rights
+$apiKey = "addapikeyhere" # API key requires ViewReport and ViewLog rights, as well as 'allow unauthenticated requests' and 'allow untrusted endpoints' - TBD user token flow to enhance security
 $domain = "customerdomain" # Add customer domain eg customer.au.ysoft.cloud
 $csvPath = "document_history.csv" # Define a name for the CSV file
 $maxRecords = "2000" # Define maximum number of records returned per API call, must be between 200 and 2000.  If 2000 fails, try a lower number eg 1000
