@@ -1,42 +1,50 @@
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
 $apiKey = "addapikeyhere" # API key requires ViewReport rights
 $domain = "customerdomain" # Add customer domain eg customer.au.ysoft.cloud
-$startDate = "2024-06-01T00:00:00.000Z" # Add start date for reporting.  You can use https://www.timestamp-converter.com for this - enter a time and date under 'Your Time Zone' and cut and paste the 'ISO 8601' value shown
-$endDate = "2024-06-06T00:00:00.000Z" # Add end date for reporting, noting a maximum of a 7 day time period
 $csvPath = "document_history.csv" # Define a name for the CSV file
-$maxRecords = "2000" # Define maximum number of records returned per API call, must be between 200 and 2000
+$maxRecords = "2000" # Define maximum number of records returned per API call, must be between 200 and 2000.  If 2000 fails, try a lower number eg 1000
+function Show-DatePicker {
+    param (
+        [string]$message = "Select a date"
+    )
 
-# Status code mapping - this converts the numeric status code to the corresponding status name
-$statusMapping = @{
-    0 = "Ready"
-    1 = "Printed"
-    2 = "Deleted"
-    3 = "Expired"
-    4 = "Failed"
-    5 = "Received"
-    6 = "Awaiting-Conversion"
-    7 = "Converting"
-    8 = "Conversion-Failed"
-    9 = "Stored"
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = $message
+    $form.Width = 250
+    $form.Height = 250
+    $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+
+    $calendar = New-Object System.Windows.Forms.MonthCalendar
+    $calendar.MaxSelectionCount = 1
+    $calendar.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $form.Controls.Add($calendar)
+
+    $okButton = New-Object System.Windows.Forms.Button
+    $okButton.Text = "OK"
+    $okButton.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $okButton.Add_Click({
+        $form.Tag = $calendar.SelectionStart
+        $form.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $form.Close()
+    })
+    $form.Controls.Add($okButton)
+
+    if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $form.Tag
+    } else {
+        return $null
+    }
 }
 
-# Validate inputs
-if (-not $apiKey) {
-    Write-Host "API key is required."
-    exit 1
-}
+function Process-ApiResponse {
+    param (
+        $response,
+        $documentDetails,
+        $statusMapping
+    )
 
-if (-not $domain) {
-    Write-Host "Domain is required."
-    exit 1
-}
-
-if (-not $startDate -or -not $endDate) {
-    Write-Host "Start date and end date are required."
-    exit 1
-}
-
-# Function to process API response and extract document details
-function Process-ApiResponse($response, $documentDetails, $statusMapping) {
     $timeZoneInfo = [TimeZoneInfo]::Local
 
     foreach ($doc in $response.documents) {
@@ -67,11 +75,13 @@ function Process-ApiResponse($response, $documentDetails, $statusMapping) {
     return $documentDetails
 }
 
-# API request URL - this formats the API request URL correctly based on the customer domain and defined reporting dates
-$apiUrlBase = "https://${domain}:7300/api/v1/documents/history?datestart=${startDate}&dateend=${endDate}&maxrecords=${maxRecords}"
+function Fetch-DocumentHistory {
+    param (
+        [string]$apiUrlBase,
+        [string]$apiKey,
+        [hashtable]$statusMapping
+    )
 
-# Start a try/catch loop to invoke the API and format the output, catering for errors
-try {
     $documentDetails = @()
     $nextPageToken = $null
     $pageCount = 1
@@ -87,26 +97,77 @@ try {
 
         if (-not $response -or -not $response.documents) {
             Write-Host "No documents found or invalid response."
-            exit 1
+            return $documentDetails
         }
 
         # Process the response
-        $documentDetails = Process-ApiResponse $response $documentDetails $statusMapping
+        $documentDetails = Process-ApiResponse -response $response -documentDetails $documentDetails -statusMapping $statusMapping
 
         # Get the nextPageToken if available
         $nextPageToken = $response.nextPageToken
         $pageCount++
-
     } while ($nextPageToken)
 
-    if (-not (Test-Path $csvPath)) {
-        $csvHeaders = "date,time,userName,documentName,jobType,outputPortName,grayscale,colorPages,totalPages,paperSize,status"
-        Out-File -FilePath $csvPath -InputObject $csvHeaders -Encoding UTF8
-    }
+    return $documentDetails
+}
 
-    $documentDetails | Export-Csv -Path $csvPath -Append -NoTypeInformation -Encoding UTF8
-    Write-Host "Document details appended to $csvPath successfully."
-} catch {
-    Write-Host "Error occurred: $_.Exception.Message"
+# Get start and end dates
+$startDate = Show-DatePicker -message "Select Start Date"
+$endDate = Show-DatePicker -message "Select End Date"
+
+# Ensure dates are valid before proceeding
+if (-not $startDate -or -not $endDate -or -not ($startDate -is [DateTime]) -or -not ($endDate -is [DateTime])) {
+    Write-Host "Valid start date and end date are required."
     exit 1
 }
+
+# Status code mapping - this converts the numeric status code to the corresponding status name
+$statusMapping = @{
+    0 = "Ready"
+    1 = "Printed"
+    2 = "Deleted"
+    3 = "Expired"
+    4 = "Failed"
+    5 = "Received"
+    6 = "Awaiting-Conversion"
+    7 = "Converting"
+    8 = "Conversion-Failed"
+    9 = "Stored"
+}
+
+# Validate inputs
+if (-not $apiKey) {
+    Write-Host "API key is required."
+    exit 1
+}
+
+if (-not $domain) {
+    Write-Host "Domain is required."
+    exit 1
+}
+
+$totalDocumentDetails = @()
+$currentStartDate = $startDate
+while ($currentStartDate -lt $endDate) {
+    $currentEndDate = $currentStartDate.AddDays(6)
+    if ($currentEndDate -gt $endDate) {
+        $currentEndDate = $endDate
+    }
+
+    $formattedStartDate = $currentStartDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    $formattedEndDate = $currentEndDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+
+    $apiUrlBase = "https://${domain}:7300/api/v1/documents/history?datestart=${formattedStartDate}&dateend=${formattedEndDate}&maxrecords=${maxRecords}"
+    $documentDetails = Fetch-DocumentHistory -apiUrlBase $apiUrlBase -apiKey $apiKey -statusMapping $statusMapping
+    $totalDocumentDetails += $documentDetails
+
+    $currentStartDate = $currentEndDate.AddSeconds(1) # Ensure no overlap
+}
+
+if (-not (Test-Path $csvPath)) {
+    $csvHeaders = "date,time,userName,documentName,jobType,outputPortName,grayscale,colorPages,totalPages,paperSize,status"
+    Out-File -FilePath $csvPath -InputObject $csvHeaders -Encoding UTF8
+}
+
+$totalDocumentDetails | Export-Csv -Path $csvPath -Append -NoTypeInformation -Encoding UTF8
+Write-Host "Document details appended to $csvPath successfully."
