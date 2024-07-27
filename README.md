@@ -1,6 +1,7 @@
 # Sample scripts for integration with SafeQ Cloud API
 
-### Note all of these are tested on and require PowerShell 7.  The default PowerShell 5.1 which ships with most standard Windows distributions will not be sufficient to run these scripts due to missing command implementations
+### POWERSHELL 7 REQUIRED
+Please see https://github.com/Dan-Devine-YSoft/safeq-cloud-scripts/wiki for further details
 
 - **import_printers_and_ports** - Parse a CSV and create printer ports and queues for direct printing\
 - **import_users_and_cards** - Import users from a CSV with additional details\
