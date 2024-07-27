@@ -1,18 +1,18 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$apiKey = $env:SQC_API_KEY # Use environment variable for API key
-$domain = $env:SQC_DOMAIN # Use environment variable for domain
-$csvPath = "document_history.csv" # Define a name for the CSV file
-$maxRecords = "2000" # Define maximum number of records returned per API call, must be between 200 and 2000. If 2000 fails, try a lower number e.g., 1000
-$logFilePath = "document_history.log" # Log file location and name
+# Define variables
+$configFilePath = "document_history.cfg"
+$csvPath = "document_history.csv"
+$maxRecords = "2000"
+$logFilePath = "document_history.log"
 
 # Initialize log file
 if (-not (Test-Path $logFilePath)) {
     New-Item -ItemType File -Path $logFilePath -Force
 }
 
-function Log-Message {
+function Write-Log {
     param (
         [string]$message
     )
@@ -20,6 +20,146 @@ function Log-Message {
     $logMessage = "$timestamp - $message"
     Add-Content -Path $logFilePath -Value $logMessage
     Write-Host $logMessage
+}
+
+function Get-UserCredentials {
+    param (
+        [string]$prompt
+    )
+    $secureString = Read-Host -Prompt $prompt -AsSecureString
+    return $secureString
+}
+
+function Initialize-Config {
+    $config = @{}
+
+    if (Test-Path $configFilePath) {
+        $configContent = Get-Content -Path $configFilePath -Raw
+        if ($configContent) {
+            $config = $configContent | ConvertFrom-Json
+        }
+    }
+
+    # Ensure $config is a hashtable
+    if (-not $config -or $config -isnot [hashtable]) {
+        $config = @{}
+    }
+
+    if (-not $config.PSObject.Properties.Match('domain').Count) {
+        $config.domain = Read-Host "Enter domain"
+    }
+
+    if (-not $config.PSObject.Properties.Match('apikey').Count) {
+        $apiKey = Read-Host "Enter API key" -AsSecureString
+        $config.apikey = $apiKey | ConvertFrom-SecureString
+    }
+
+    if (-not $config.PSObject.Properties.Match('userid').Count) {
+        $config.userid = Read-Host "Enter user ID"
+    }
+
+    if (-not $config.PSObject.Properties.Match('password').Count) {
+        $password = Read-Host "Enter password" -AsSecureString
+        $config.password = $password | ConvertFrom-SecureString
+    }
+
+    # Write the complete config back to the file
+    $config | ConvertTo-Json -Depth 32 | Set-Content -Path $configFilePath -Force
+
+    return $config
+}
+
+function Get-Config {
+    $config = @{}
+    if (Test-Path $configFilePath) {
+        $configContent = Get-Content -Path $configFilePath -Raw
+        if ($configContent) {
+            $config = $configContent | ConvertFrom-Json
+        }
+    }
+    return $config
+}
+
+function ConvertFrom-SecureConfigString {
+    param (
+        [string]$secureString
+    )
+    return $secureString | ConvertTo-SecureString
+}
+
+function ConvertTo-PlainText {
+    param (
+        [SecureString]$secureString
+    )
+    return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureString))
+}
+
+# Load existing configuration
+$config = Get-Config
+
+# Prompt for missing values
+if (-not $config.PSObject.Properties.Match('domain').Count -or -not $config.domain) {
+    $config.domain = Read-Host "Enter domain"
+}
+
+if (-not $config.PSObject.Properties.Match('apikey').Count -or -not $config.apikey) {
+    $apiKey = Read-Host "Enter API key" -AsSecureString
+    $config.apikey = $apiKey | ConvertFrom-SecureString
+}
+
+if (-not $config.PSObject.Properties.Match('userid').Count -or -not $config.userid) {
+    $config.userid = Read-Host "Enter user ID"
+}
+
+if (-not $config.PSObject.Properties.Match('password').Count -or -not $config.password) {
+    $password = Read-Host "Enter password" -AsSecureString
+    $config.password = $password | ConvertFrom-SecureString
+}
+
+# Write the complete config back to the file
+$config | ConvertTo-Json -Depth 32 | Set-Content -Path $configFilePath -Force
+
+# Convert secure strings back to secure strings for use
+$domain = $config.domain
+$apiKey = ConvertFrom-SecureConfigString -secureString $config.apikey
+$userid = $config.userid
+$securePassword = ConvertFrom-SecureConfigString -secureString $config.password
+
+# Convert the secure API key to plain text for use
+$plainApiKey = ConvertTo-PlainText -secureString $apiKey
+
+$loginUrl = "https://${domain}:7300/api/v1/login"
+$apiBaseUrl = "https://${domain}:7300/api/v1"
+
+Write-Log "Using API Key: $plainApiKey"
+
+function Get-UserToken {
+    param (
+        [string]$userid,
+        [SecureString]$securePassword,
+        [string]$plainApiKey
+    )
+
+    $password = ConvertTo-PlainText -secureString $securePassword
+
+    $headers = @{
+        "X-Api-Key" = "$plainApiKey"
+    }
+
+    $body = @{
+        authtype = 0
+        userid   = $userid
+        password = $password
+    }
+
+    try {
+        Write-Log "Requesting user token..."
+        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
+        return $response.token.access_token
+    } catch {
+        Write-Log "Error obtaining user token: $_"
+        exit 1
+    }
 }
 
 function Show-DatePicker {
@@ -61,7 +201,7 @@ function Show-DatePicker {
     }
 }
 
-function Process-ApiResponse {
+function ConvertFrom-ApiResponse {
     param (
         $response,
         $documentDetails,
@@ -81,7 +221,7 @@ function Process-ApiResponse {
 
         $documentDetails += [PSCustomObject]@{
             fullDateTime = $fullDateTime
-            date = $localDateTime.ToString("dd-MM-yy")
+            date = $localDateTime.ToString("yyyy-MM-dd")
             time = $localDateTime.ToString("HH:mm:ss")
             userName = $doc.userName
             documentName = $documentName
@@ -98,10 +238,10 @@ function Process-ApiResponse {
     return $documentDetails
 }
 
-function Fetch-DocumentHistory {
+function Get-DocumentHistory {
     param (
         [string]$apiUrlBase,
-        [string]$apiKey,
+        [string]$token,
         [hashtable]$statusMapping
     )
 
@@ -116,14 +256,17 @@ function Fetch-DocumentHistory {
             $apiUrl += "&nextPageToken=$nextPageToken"
         }
 
-        Log-Message "Getting records from API, please wait... (Page $pageCount)"
+        Write-Log "Getting records from API, please wait... (Page $pageCount)"
         try {
             for ($i = 0; $i -lt $retryCount; $i++) {
                 try {
-                    $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey }
+                    $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{
+                        "X-Api-Key" = "$plainApiKey"
+                        "Authorization" = "Bearer $token" } -SkipCertificateCheck
+                    Write-Log "Records obtained successfully."
                     break
                 } catch {
-                    Log-Message "Attempt $($i + 1) failed: $_"
+                    Write-Log "Attempt $($i + 1) failed: $_"
                     if ($i -eq $retryCount - 1) {
                         throw
                     }
@@ -132,25 +275,32 @@ function Fetch-DocumentHistory {
             }
         }
         catch {
-            Log-Message "Error fetching data from API: $_"
+            Write-Log "Error fetching data from API: $_"
             return $documentDetails
         }
 
         if (-not $response -or -not $response.documents) {
-            Log-Message "No documents found or invalid response."
+            Write-Log "No documents found or invalid response."
             return $documentDetails
         }
 
         # Process the response
-        $documentDetails = Process-ApiResponse -response $response -documentDetails $documentDetails -statusMapping $statusMapping
+        $documentDetails = ConvertFrom-ApiResponse -response $response -documentDetails $documentDetails -statusMapping $statusMapping
 
         # Get the nextPageToken if available
         $nextPageToken = $response.nextPageToken
         $pageCount++
+
+        # Add a 2-second delay between API calls
+        Start-Sleep -Seconds 2
+
     } while ($nextPageToken)
 
     return $documentDetails
 }
+
+# Get the user token
+$token = Get-UserToken -userid $userid -securePassword $securePassword -plainApiKey $plainApiKey
 
 # Get start and end dates
 $startDate = Show-DatePicker -message "Select Start Date"
@@ -158,12 +308,12 @@ $endDate = Show-DatePicker -message "Select End Date"
 
 # Ensure dates are valid before proceeding
 if (-not $startDate -or -not $endDate -or -not ($startDate -is [DateTime]) -or -not ($endDate -is [DateTime])) {
-    Log-Message "Valid start date and end date are required."
+    Write-Log "Valid start date and end date are required."
     exit 1
 }
 
 if ($startDate -gt $endDate) {
-    Log-Message "Start date cannot be later than end date."
+    Write-Log "Start date cannot be later than end date."
     exit 1
 }
 
@@ -181,17 +331,6 @@ $statusMapping = @{
     9 = "Stored"
 }
 
-# Validate inputs
-if (-not $apiKey) {
-    Log-Message "API key is required."
-    exit 1
-}
-
-if (-not $domain) {
-    Log-Message "Domain is required."
-    exit 1
-}
-
 $totalDocumentDetails = @()
 $currentStartDate = $startDate
 while ($currentStartDate -lt $endDate) {
@@ -203,8 +342,8 @@ while ($currentStartDate -lt $endDate) {
     $formattedStartDate = $currentStartDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
     $formattedEndDate = $currentEndDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 
-    $apiUrlBase = "https://${domain}:7300/api/v1/documents/history?datestart=${formattedStartDate}&dateend=${formattedEndDate}&maxrecords=${maxRecords}"
-    $documentDetails = Fetch-DocumentHistory -apiUrlBase $apiUrlBase -apiKey $apiKey -statusMapping $statusMapping
+    $apiUrlBase = "$apiBaseUrl/documents/history?datestart=${formattedStartDate}&dateend=${formattedEndDate}&maxrecords=${maxRecords}"
+    $documentDetails = Get-DocumentHistory -apiUrlBase $apiUrlBase -token $token -statusMapping $statusMapping
     $totalDocumentDetails += $documentDetails
 
     $currentStartDate = $currentEndDate.AddSeconds(1) # Ensure no overlap
@@ -220,7 +359,7 @@ if (-not (Test-Path $csvPath)) {
 
 try {
     $totalDocumentDetails | Select-Object -Property date, time, userName, documentName, jobType, outputPortName, grayscale, colorPages, totalPages, paperSize, status | Export-Csv -Path $csvPath -Append -NoTypeInformation -Encoding UTF8
-    Log-Message "Document details appended to $csvPath successfully."
+    Write-Log "Document details appended to $csvPath successfully."
 } catch {
-    Log-Message "Error writing to CSV file: $_"
+    Write-Log "Error writing to CSV file: $_"
 }
