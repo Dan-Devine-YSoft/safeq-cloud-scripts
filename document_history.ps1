@@ -1,10 +1,27 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$apiKey = "addapikeyhere" # API key requires ViewReport and ViewLog rights, as well as 'allow unauthenticated requests' and 'allow untrusted endpoints' - TBD user token flow to enhance security
-$domain = "customerdomain" # Add customer domain eg customer.au.ysoft.cloud
+$apiKey = $env:SQC_API_KEY # Use environment variable for API key
+$domain = $env:SQC_DOMAIN # Use environment variable for domain
 $csvPath = "document_history.csv" # Define a name for the CSV file
-$maxRecords = "2000" # Define maximum number of records returned per API call, must be between 200 and 2000.  If 2000 fails, try a lower number eg 1000
+$maxRecords = "2000" # Define maximum number of records returned per API call, must be between 200 and 2000. If 2000 fails, try a lower number e.g., 1000
+$logFilePath = "document_history.log" # Log file location and name
+
+# Initialize log file
+if (-not (Test-Path $logFilePath)) {
+    New-Item -ItemType File -Path $logFilePath -Force
+}
+
+function Log-Message {
+    param (
+        [string]$message
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "$timestamp - $message"
+    Add-Content -Path $logFilePath -Value $logMessage
+    Write-Host $logMessage
+}
+
 function Show-DatePicker {
     param (
         [string]$message = "Select a date"
@@ -12,13 +29,19 @@ function Show-DatePicker {
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = $message
-    $form.Width = 250
+    $form.Width = 600
     $form.Height = 250
     $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 
     $calendar = New-Object System.Windows.Forms.MonthCalendar
     $calendar.MaxSelectionCount = 1
     $calendar.Dock = [System.Windows.Forms.DockStyle]::Fill
+
+    # Set the selection range to show the current month and the preceding two months
+    $today = [DateTime]::Today
+    $calendar.SelectionStart = (Get-Date -Year $today.Year -Month $today.Month -Day 1).AddMonths(-2)
+    $calendar.SelectionEnd = $today
+
     $form.Controls.Add($calendar)
 
     $okButton = New-Object System.Windows.Forms.Button
@@ -50,16 +73,16 @@ function Process-ApiResponse {
     foreach ($doc in $response.documents) {
         $epochStart = [DateTime]::UnixEpoch.AddMilliseconds($doc.dateTime)
         $localDateTime = [TimeZoneInfo]::ConvertTimeFromUtc($epochStart, $timeZoneInfo)
-        $formattedDate = $localDateTime.ToString("dd-MM-yy")
-        $time = $localDateTime.ToString("HH:mm:ss")
+        $fullDateTime = $localDateTime.ToString("yyyy-MM-dd HH:mm:ss")
 
         $statusCode = [int]$doc.status
         $statusString = $statusMapping[$statusCode] -replace 'Null','Unknown status code'
         $documentName = if ([string]::IsNullOrWhiteSpace($doc.documentName)) { "NoDocumentName" } else { $doc.documentName }
 
         $documentDetails += [PSCustomObject]@{
-            date = $formattedDate
-            time = $time
+            fullDateTime = $fullDateTime
+            date = $localDateTime.ToString("dd-MM-yy")
+            time = $localDateTime.ToString("HH:mm:ss")
             userName = $doc.userName
             documentName = $documentName
             jobType = $doc.jobType
@@ -85,6 +108,7 @@ function Fetch-DocumentHistory {
     $documentDetails = @()
     $nextPageToken = $null
     $pageCount = 1
+    $retryCount = 3
 
     do {
         $apiUrl = $apiUrlBase
@@ -92,11 +116,28 @@ function Fetch-DocumentHistory {
             $apiUrl += "&nextPageToken=$nextPageToken"
         }
 
-        Write-Host "Getting records from API, please wait... (Page $pageCount)"
-        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey }
+        Log-Message "Getting records from API, please wait... (Page $pageCount)"
+        try {
+            for ($i = 0; $i -lt $retryCount; $i++) {
+                try {
+                    $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey }
+                    break
+                } catch {
+                    Log-Message "Attempt $($i + 1) failed: $_"
+                    if ($i -eq $retryCount - 1) {
+                        throw
+                    }
+                    Start-Sleep -Seconds 5
+                }
+            }
+        }
+        catch {
+            Log-Message "Error fetching data from API: $_"
+            return $documentDetails
+        }
 
         if (-not $response -or -not $response.documents) {
-            Write-Host "No documents found or invalid response."
+            Log-Message "No documents found or invalid response."
             return $documentDetails
         }
 
@@ -117,7 +158,12 @@ $endDate = Show-DatePicker -message "Select End Date"
 
 # Ensure dates are valid before proceeding
 if (-not $startDate -or -not $endDate -or -not ($startDate -is [DateTime]) -or -not ($endDate -is [DateTime])) {
-    Write-Host "Valid start date and end date are required."
+    Log-Message "Valid start date and end date are required."
+    exit 1
+}
+
+if ($startDate -gt $endDate) {
+    Log-Message "Start date cannot be later than end date."
     exit 1
 }
 
@@ -137,12 +183,12 @@ $statusMapping = @{
 
 # Validate inputs
 if (-not $apiKey) {
-    Write-Host "API key is required."
+    Log-Message "API key is required."
     exit 1
 }
 
 if (-not $domain) {
-    Write-Host "Domain is required."
+    Log-Message "Domain is required."
     exit 1
 }
 
@@ -164,10 +210,17 @@ while ($currentStartDate -lt $endDate) {
     $currentStartDate = $currentEndDate.AddSeconds(1) # Ensure no overlap
 }
 
+# Sort the document details by full date and time before writing to CSV
+$totalDocumentDetails = $totalDocumentDetails | Sort-Object -Property fullDateTime
+
 if (-not (Test-Path $csvPath)) {
     $csvHeaders = "date,time,userName,documentName,jobType,outputPortName,grayscale,colorPages,totalPages,paperSize,status"
     Out-File -FilePath $csvPath -InputObject $csvHeaders -Encoding UTF8
 }
 
-$totalDocumentDetails | Export-Csv -Path $csvPath -Append -NoTypeInformation -Encoding UTF8
-Write-Host "Document details appended to $csvPath successfully."
+try {
+    $totalDocumentDetails | Select-Object -Property date, time, userName, documentName, jobType, outputPortName, grayscale, colorPages, totalPages, paperSize, status | Export-Csv -Path $csvPath -Append -NoTypeInformation -Encoding UTF8
+    Log-Message "Document details appended to $csvPath successfully."
+} catch {
+    Log-Message "Error writing to CSV file: $_"
+}
