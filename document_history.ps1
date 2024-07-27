@@ -1,11 +1,17 @@
+# document_history.ps1 - Dan Devine @ Ysoft
+# This script will query the /documents/history API endpoint and create a CSV file with the content.  It requires some minor configuration as detailed here: https://github.com/Dan-Devine-YSoft/safeq-cloud-scripts/wiki/Document-History
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# Define variables
+# User-defined variables - you can edit this section
+
 $configFilePath = "document_history.cfg"
 $csvPath = "document_history.csv"
 $maxRecords = "2000"
 $logFilePath = "document_history.log"
+
+######  DO NOT EDIT BELOW THIS LINE  ######
 
 # Initialize log file
 if (-not (Test-Path $logFilePath)) {
@@ -46,7 +52,7 @@ function Initialize-Config {
     }
 
     if (-not $config.PSObject.Properties.Match('domain').Count) {
-        $config.domain = Read-Host "Enter domain"
+        $config.domain = Read-Host "Enter domain eg. customer.au.ysoft.cloud"
     }
 
     if (-not $config.PSObject.Properties.Match('apikey').Count) {
@@ -55,11 +61,11 @@ function Initialize-Config {
     }
 
     if (-not $config.PSObject.Properties.Match('userid').Count) {
-        $config.userid = Read-Host "Enter user ID"
+        $config.userid = Read-Host "Enter username with ViewReport access"
     }
 
     if (-not $config.PSObject.Properties.Match('password').Count) {
-        $password = Read-Host "Enter password" -AsSecureString
+        $password = Read-Host "Enter password for the above user" -AsSecureString
         $config.password = $password | ConvertFrom-SecureString
     }
 
