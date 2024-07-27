@@ -210,13 +210,12 @@ function Show-DatePicker {
 function ConvertFrom-ApiResponse {
     param (
         $response,
-        $documentDetails,
         $statusMapping
     )
 
     $timeZoneInfo = [TimeZoneInfo]::Local
 
-    foreach ($doc in $response.documents) {
+    $documentDetails = foreach ($doc in $response.documents) {
         $epochStart = [DateTime]::UnixEpoch.AddMilliseconds($doc.dateTime)
         $localDateTime = [TimeZoneInfo]::ConvertTimeFromUtc($epochStart, $timeZoneInfo)
         $fullDateTime = $localDateTime.ToString("yyyy-MM-dd HH:mm:ss")
@@ -225,7 +224,7 @@ function ConvertFrom-ApiResponse {
         $statusString = $statusMapping[$statusCode] -replace 'Null','Unknown status code'
         $documentName = if ([string]::IsNullOrWhiteSpace($doc.documentName)) { "NoDocumentName" } else { $doc.documentName }
 
-        $documentDetails += [PSCustomObject]@{
+        [PSCustomObject]@{
             fullDateTime = $fullDateTime
             date = $localDateTime.ToString("yyyy-MM-dd")
             time = $localDateTime.ToString("HH:mm:ss")
@@ -251,7 +250,6 @@ function Get-DocumentHistory {
         [hashtable]$statusMapping
     )
 
-    $documentDetails = @()
     $nextPageToken = $null
     $pageCount = 1
     $retryCount = 3
@@ -282,16 +280,24 @@ function Get-DocumentHistory {
         }
         catch {
             Write-Log "Error fetching data from API: $_"
-            return $documentDetails
+            return
         }
 
         if (-not $response -or -not $response.documents) {
             Write-Log "No documents found or invalid response."
-            return $documentDetails
+            return
         }
 
         # Process the response
-        $documentDetails = ConvertFrom-ApiResponse -response $response -documentDetails $documentDetails -statusMapping $statusMapping
+        $documentDetails = ConvertFrom-ApiResponse -response $response -statusMapping $statusMapping
+
+        # Write the details to the CSV file incrementally
+        try {
+            $documentDetails | Select-Object -Property fullDateTime, date, time, userName, documentName, jobType, outputPortName, grayscale, colorPages, totalPages, paperSize, status | Export-Csv -Path $csvPath -Append -NoTypeInformation -Encoding UTF8
+            Write-Log "Document details for page $pageCount appended to $csvPath successfully."
+        } catch {
+            Write-Log "Error writing to CSV file: $_"
+        }
 
         # Get the nextPageToken if available
         $nextPageToken = $response.nextPageToken
@@ -301,8 +307,6 @@ function Get-DocumentHistory {
         Start-Sleep -Seconds 2
 
     } while ($nextPageToken)
-
-    return $documentDetails
 }
 
 # Get the user token
@@ -337,8 +341,25 @@ $statusMapping = @{
     9 = "Stored"
 }
 
-$totalDocumentDetails = @()
+# Check if the CSV file exists and request confirmation to overwrite
+
+if (Test-Path $csvPath) {
+    $response = Read-Host "The file '$csvPath' already exists. Do you want to overwrite it? (y/n)"
+    if ($response -eq 'y') {
+        Remove-Item -Path $csvPath
+    }
+}
+
+# Write the headers if the file does not exist or if it was overwritten
+if (-not (Test-Path $csvPath)) {
+    $csvHeaders = "fullDateTime,date,time,userName,documentName,jobType,outputPortName,grayscale,colorPages,totalPages,paperSize,status"
+    Out-File -FilePath $csvPath -InputObject $csvHeaders -Encoding UTF8
+}
+
+# Initialize the start date for the first batch of data retrieval
 $currentStartDate = $startDate
+
+# Retrieve and write document history in batches
 while ($currentStartDate -lt $endDate) {
     $currentEndDate = $currentStartDate.AddDays(6)
     if ($currentEndDate -gt $endDate) {
@@ -349,23 +370,10 @@ while ($currentStartDate -lt $endDate) {
     $formattedEndDate = $currentEndDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
 
     $apiUrlBase = "$apiBaseUrl/documents/history?datestart=${formattedStartDate}&dateend=${formattedEndDate}&maxrecords=${maxRecords}"
-    $documentDetails = Get-DocumentHistory -apiUrlBase $apiUrlBase -token $token -statusMapping $statusMapping
-    $totalDocumentDetails += $documentDetails
+    Get-DocumentHistory -apiUrlBase $apiUrlBase -token $token -statusMapping $statusMapping
 
     $currentStartDate = $currentEndDate.AddSeconds(1) # Ensure no overlap
 }
 
-# Sort the document details by full date and time before writing to CSV
-$totalDocumentDetails = $totalDocumentDetails | Sort-Object -Property fullDateTime
+Write-Log "Document history retrieval and CSV export completed."
 
-if (-not (Test-Path $csvPath)) {
-    $csvHeaders = "date,time,userName,documentName,jobType,outputPortName,grayscale,colorPages,totalPages,paperSize,status"
-    Out-File -FilePath $csvPath -InputObject $csvHeaders -Encoding UTF8
-}
-
-try {
-    $totalDocumentDetails | Select-Object -Property date, time, userName, documentName, jobType, outputPortName, grayscale, colorPages, totalPages, paperSize, status | Export-Csv -Path $csvPath -Append -NoTypeInformation -Encoding UTF8
-    Write-Log "Document details appended to $csvPath successfully."
-} catch {
-    Write-Log "Error writing to CSV file: $_"
-}
