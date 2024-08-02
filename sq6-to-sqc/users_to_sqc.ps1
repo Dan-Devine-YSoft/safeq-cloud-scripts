@@ -21,48 +21,28 @@ Write-Log "Script execution started."
 # Define the path to the configuration file
 $configFilePath = "config.json"
 
-# Function to get or create configuration
-function Get-Configuration {
+# Function to load configuration
+function Load-Configuration {
     if (-Not (Test-Path $configFilePath)) {
-        Write-Log "Configuration file not found. Creating a new one." -level "INFO"
-        $config = @{}  # Initialize as a hashtable
-    } else {
-        $config = Get-Content -Path $configFilePath | ConvertFrom-Json
+        Write-Log "Configuration file not found. Please run create_config.ps1 to create it." -level "ERROR"
+        exit
     }
+    $config = Get-Content -Path $configFilePath | ConvertFrom-Json
 
-    # Ensure the configuration is a hashtable to allow dynamic properties
-    $config = [hashtable]$config
+    # Check for required configuration keys
+    $requiredKeys = @('ProviderId', 'Domain', 'ApiKey', 'ApiUsername', 'ApiPassword', 'csvFileName')
+    $missingKeys = $requiredKeys | Where-Object { -not $config.PSObject.Properties.Match($_) -or -not $config.$_ }
 
-    if (-not $config.ContainsKey('ProviderId') -or -not $config['ProviderId']) {
-        $config['ProviderId'] = Read-Host "Enter the Provider ID"
+    if ($missingKeys.Count -gt 0) {
+        Write-Log "The configuration file is missing the following required keys: $($missingKeys -join ', '). Please run create_config.ps1 to update the configuration." -level "ERROR"
+        exit
     }
-
-    if (-not $config.ContainsKey('Domain') -or -not $config['Domain']) {
-        $config['Domain'] = Read-Host "Enter your SafeQ Cloud domain (eg. customer.au.ysoft.cloud)"
-    }
-
-    if (-not $config.ContainsKey('ApiKey') -or -not $config['ApiKey']) {
-        $plainApiKey = Read-Host "Enter your API Key"
-        $config['ApiKey'] = (ConvertTo-SecureString -String $plainApiKey -AsPlainText -Force) | ConvertFrom-SecureString
-    }
-
-    if (-not $config.ContainsKey('ApiUsername') -or -not $config['ApiUsername']) {
-        $config['ApiUsername'] = Read-Host "Enter your API Username"
-    }
-
-    if (-not $config.ContainsKey('ApiPassword') -or -not $config['ApiPassword']) {
-        $securePassword = Read-Host "Enter your API Password" -AsSecureString
-        $config['ApiPassword'] = $securePassword | ConvertFrom-SecureString
-    }
-
-    # Write back the updated configuration to the file
-    $config | ConvertTo-Json -Depth 32 | Set-Content -Path $configFilePath -Force
 
     return $config
 }
 
 # Load configuration
-$config = Get-Configuration
+$config = Load-Configuration
 
 # Extract configuration values
 $outputCsv = $config.csvFileName
@@ -156,7 +136,8 @@ function Update-UserDetails {
         [string]$fullName,
         [string]$email,
         [string]$alias,
-        [string]$pinOrCard
+        [string]$pin,
+        [string]$cardNumber
     )
 
     $details = ""
@@ -166,11 +147,11 @@ function Update-UserDetails {
     if ($email) {
         $details += "&email=$($email -replace ' ', '%20')"
     }
-    if ($pinOrCard -notlike "PIN*") {
-        $details += "&cardId=$($pinOrCard)"
+    if ($cardNumber) {
+        $details += "&cardId=$($cardNumber)"
     }
-    if ($pinOrCard -like "PIN*") {
-        $details += "&pin=$($pinOrCard.Substring(3))"
+    if ($pin) {
+        $details += "&pin=$($pin)"
     }
 
     $url = "$apiBaseUrl/users/$username?providerId=$providerId$details"
@@ -200,7 +181,8 @@ function New-User {
         [string]$fullName,
         [string]$email,
         [string]$alias,
-        [string]$pinOrCard
+        [string]$pin,
+        [string]$cardNumber
     )
 
     $details = "username=$username&providerId=$providerId"
@@ -210,11 +192,11 @@ function New-User {
     if ($email) {
         $details += "&email=$($email -replace ' ', '%20')"
     }
-    if ($pinOrCard -notlike "PIN*") {
-        $details += "&cardId=$($pinOrCard)"
+    if ($cardNumber) {
+        $details += "&cardId=$($cardNumber)"
     }
-    if ($pinOrCard -like "PIN*") {
-        $details += "&pin=$($pinOrCard.Substring(3))"
+    if ($pin) {
+        $details += "&pin=$($pin)"
     }
 
     $url = "$apiBaseUrl/users?$details"
@@ -240,21 +222,32 @@ function New-User {
 # Read the CSV file and process each user
 $csvData = Import-Csv -Path $outputCsv
 
+# Track line number for logging
+$lineNumber = 0
+
 foreach ($row in $csvData) {
+    $lineNumber++
     $username = $row.$fieldSelection
     $fullName = $row.full_name
     $email = $row.email
     $alias = $row.alias
-    $pinOrCard = $row.pin_or_card
+    $pin = if ($row.pin -ne "") { $row.pin } else { $null }
+    $cardNumber = if ($row.card_number -ne "") { $row.card_number } else { $null }
+
+    # Check if the username field is empty and log if necessary
+    if (-not $username) {
+        Write-Log "Line $lineNumber of the CSV contains an entry that is missing the username ($fieldSelection)." -level "WARNING"
+        continue
+    }
 
     $user = Get-UserInformation -username $username
 
     if ($null -ne $user) {
         # User exists, update details
-        Update-UserDetails -username $username -fullName $fullName -email $email -alias $alias -pinOrCard $pinOrCard
+        Update-UserDetails -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber
     } else {
         # User does not exist, create new user
-        New-User -username $username -fullName $fullName -email $email -alias $alias -pinOrCard $pinOrCard
+        New-User -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber
     }
 }
 

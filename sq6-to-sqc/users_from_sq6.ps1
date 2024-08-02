@@ -1,75 +1,255 @@
+# Initialize log file
+$logFilePath = "users_to_sqc.log"
+if (-not (Test-Path $logFilePath)) {
+    $null = New-Item -ItemType File -Path $logFilePath -Force
+}
+
+function Write-Log {
+    param (
+        [string]$message,
+        [string]$level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "$timestamp [$level] - $message"
+    Add-Content -Path $logFilePath -Value $logMessage
+    Write-Host $logMessage
+}
+
+# Log start
+Write-Log "Script execution started."
+
 # Define the path to the configuration file
 $configFilePath = "config.json"
 
-# Function to load configuration from the file
+# Function to load configuration
 function Load-Configuration {
     if (-Not (Test-Path $configFilePath)) {
-        Write-Output "Configuration file not found. Please run the configuration script first."
+        Write-Log "Configuration file not found. Please run create_config.ps1 to create it." -level "ERROR"
         exit
     }
     $config = Get-Content -Path $configFilePath | ConvertFrom-Json
-    $securePassword = $config.password | ConvertTo-SecureString
-    $config.Password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword))
+
+    # Check for required configuration keys
+    $requiredKeys = @('ProviderId', 'Domain', 'ApiKey', 'ApiUsername', 'ApiPassword', 'csvFileName')
+    $missingKeys = $requiredKeys | Where-Object { -not $config.PSObject.Properties.Match($_) -or -not $config.$_ }
+
+    if ($missingKeys.Count -gt 0) {
+        Write-Log "The configuration file is missing the following required keys: $($missingKeys -join ', '). Please run create_config.ps1 to update the configuration." -level "ERROR"
+        exit
+    }
+
     return $config
 }
 
 # Load configuration
 $config = Load-Configuration
 
-# Check if the csvFileName property exists and prompt the user if it doesn't
-if (-Not $config.PSObject.Properties.Match('csvFileName')) {
-    $csvFileNamePrompt = Read-Host "Enter the name of the CSV file (press enter to use sq6export.csv)"
-    $config.csvFileName = if ($csvFileNamePrompt -eq "") { "sq6export.csv" } else { $csvFileNamePrompt }
+# Extract configuration values
+$outputCsv = $config.csvFileName
+$providerId = $config.ProviderId
+$domain = $config.Domain
+$plainApiKey = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString $config.ApiKey)))
+$userid = $config.ApiUsername
+$securePassword = ConvertTo-SecureString -String $config.ApiPassword
 
-    # Save the updated configuration with the CSV file name
-    $config | ConvertTo-Json | Set-Content -Path $configFilePath
+# Prompt user to select which field to use for the username
+$fieldOptions = @("login", "email", "alias")
+$fieldSelection = Read-Host "Select which field to use as the username (login/email/alias)"
+
+if ($fieldOptions -notcontains $fieldSelection) {
+    Write-Log "Invalid selection. Please run the script again and choose either 'login', 'email', or 'alias'." -level "ERROR"
+    exit
 }
 
-# Extract configuration values
-$serverName = $config.serverName
-$databaseName = $config.databaseName
-$username = $config.username
-$password = $config.Password
-$authSource = $config.authSource
-$outputCsv = $config.csvFileName  # Path to the output CSV file
+# Define API base URL and authentication details
+$apiBaseUrl = "https://${domain}:7300/api/v1"
+$loginUrl = "$apiBaseUrl/login"
 
-# Create SQL query with JOINs and filtering
-$query = @"
-SELECT u.login, u.name + ' ' + u.surname AS full_name, u.email, ua.alias,
-       CASE WHEN uc.card LIKE 'PIN%' THEN SUBSTRING(uc.card, 4, LEN(uc.card) - 3) ELSE uc.card END AS pin_or_card
-FROM tenant_1.users u
-LEFT JOIN tenant_1.users_aliases ua ON u.id = ua.user_id
-LEFT JOIN tenant_1.users_cards uc ON u.id = uc.user_id
-WHERE u.sign = '$authSource'
-"@
+# Function to get user token
+function Get-UserToken {
+    param (
+        [string]$userid,
+        [SecureString]$securePassword,
+        [string]$plainApiKey
+    )
+    $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword))
+    $headers = @{
+        "X-Api-Key" = "$plainApiKey"
+    }
+    $body = @{
+        authtype = 0
+        userid   = $userid
+        password = $password
+    }
+    try {
+        Write-Log "Requesting user token at URL: $loginUrl with headers: $($headers | ConvertTo-Json) and body: $($body | ConvertTo-Json)"
+        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
+        Write-Log "User token obtained successfully."
+        return $response.token.access_token
+    } catch {
+        Write-Log "Error obtaining user token: $_" -level "ERROR"
+        exit 1
+    }
+}
 
-# Create a SQL connection using TCP
-$connectionString = "Server=tcp:$serverName,1433;Database=$databaseName;User Id=$username;Password=$password;"
-$connection = New-Object System.Data.SqlClient.SqlConnection
-$connection.ConnectionString = $connectionString
+# Get the user token
+$token = Get-UserToken -userid $userid -securePassword $securePassword -plainApiKey $plainApiKey
 
-# Open the connection
-$connection.Open()
+# Function to get user information
+function Get-UserInformation {
+    param (
+        [string]$username
+    )
 
-# Create SQL command
-$command = $connection.CreateCommand()
-$command.CommandText = $query
+    $url = "$apiBaseUrl/users?username=$username&providerid=$providerId"
+    $headers = @{
+        "Authorization" = "Bearer $token"
+        "X-Api-Key"     = "$plainApiKey"
+    }
 
-# Execute the query and get results
-$reader = $command.ExecuteReader()
+    try {
+        Write-Log "Getting user information at URL: $url with headers: $($headers | ConvertTo-Json)"
+        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -SkipCertificateCheck
+        Write-Log "User information retrieved successfully for ${username}."
+        return $response
+    } catch {
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match "not found") {
+            Write-Log "User with username=$username and providerId=$providerId not found." -level "INFO"
+            return $null
+        } else {
+            Write-Log "Failed to get user information for ${username}: $_" -level "ERROR"
+            if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
+                $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                $responseBody = $reader.ReadToEnd()
+                Write-Log "Error details: $responseBody" -level "ERROR"
+            }
+            return $null
+        }
+    }
+}
 
-# Create a DataTable to hold the query results
-$dataTable = New-Object System.Data.DataTable
+# Function to update user details using query parameters
+function Update-UserDetails {
+    param (
+        [string]$username,
+        [string]$fullName,
+        [string]$email,
+        [string]$alias,
+        [string]$pin,
+        [string]$cardNumber
+    )
 
-# Load the data into the DataTable
-$dataTable.Load($reader)
+    $details = ""
+    if ($fullName) {
+        $details += "&fullName=$($fullName -replace ' ', '%20')"
+    }
+    if ($email) {
+        $details += "&email=$($email -replace ' ', '%20')"
+    }
+    if ($cardNumber) {
+        $details += "&cardId=$($cardNumber)"
+    }
+    if ($pin) {
+        $details += "&pin=$($pin)"
+    }
 
-# Close the reader and the connection
-$reader.Close()
-$connection.Close()
+    $url = "$apiBaseUrl/users/$username?providerId=$providerId$details"
+    $headers = @{
+        "Authorization" = "Bearer $token"
+        "X-Api-Key"     = "$plainApiKey"
+    }
 
-# Export the DataTable to CSV
-$dataTable | Export-Csv -Path $outputCsv -NoTypeInformation -Encoding UTF8
+    try {
+        Write-Log "Updating user details at URL: $url with headers: $($headers | ConvertTo-Json)"
+        Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
+        Write-Log "Updated user ${username} successfully."
+    } catch {
+        Write-Log "Failed to update user ${username}: $_" -level "ERROR"
+        if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
+            $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+            $responseBody = $reader.ReadToEnd()
+            Write-Log "Error details: $responseBody" -level "ERROR"
+        }
+    }
+}
 
-# Inform the user
-Write-Output "Data has been exported to $outputCsv"
+# Function to create a new user using query parameters
+function New-User {
+    param (
+        [string]$username,
+        [string]$fullName,
+        [string]$email,
+        [string]$alias,
+        [string]$pin,
+        [string]$cardNumber
+    )
+
+    $details = "username=$username&providerId=$providerId"
+    if ($fullName) {
+        $details += "&fullName=$($fullName -replace ' ', '%20')"
+    }
+    if ($email) {
+        $details += "&email=$($email -replace ' ', '%20')"
+    }
+    if ($cardNumber) {
+        $details += "&cardId=$($cardNumber)"
+    }
+    if ($pin) {
+        $details += "&pin=$($pin)"
+    }
+
+    $url = "$apiBaseUrl/users?$details"
+    $headers = @{
+        "Authorization" = "Bearer $token"
+        "X-Api-Key"     = "$plainApiKey"
+    }
+
+    try {
+        Write-Log "Creating user at URL: $url with headers: $($headers | ConvertTo-Json)"
+        Invoke-RestMethod -Uri $url -Headers $headers -Method Post -SkipCertificateCheck
+        Write-Log "Created user ${username} successfully."
+    } catch {
+        Write-Log "Failed to create user ${username}: $_" -level "ERROR"
+        if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
+            $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+            $responseBody = $reader.ReadToEnd()
+            Write-Log "Error details: $responseBody" -level "ERROR"
+        }
+    }
+}
+
+# Read the CSV file and process each user
+$csvData = Import-Csv -Path $outputCsv
+
+# Track line number for logging
+$lineNumber = 0
+
+foreach ($row in $csvData) {
+    $lineNumber++
+    $username = $row.$fieldSelection
+    $fullName = $row.full_name
+    $email = $row.email
+    $alias = $row.alias
+    $pin = if ($row.pin -ne "") { $row.pin } else { $null }
+    $cardNumber = if ($row.card_number -ne "") { $row.card_number } else { $null }
+
+    # Check if the username field is empty and log if necessary
+    if (-not $username) {
+        Write-Log "Line $lineNumber of the CSV contains an entry that is missing the username ($fieldSelection)." -level "WARNING"
+        continue
+    }
+
+    $user = Get-UserInformation -username $username
+
+    if ($null -ne $user) {
+        # User exists, update details
+        Update-UserDetails -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber
+    } else {
+        # User does not exist, create new user
+        New-User -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber
+    }
+}
+
+# Log completion
+Write-Log "Script execution completed."
