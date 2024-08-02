@@ -129,7 +129,7 @@ function Get-UserInformation {
     }
 }
 
-# Function to update user details using query parameters
+# Function to update user details one at a time
 function Update-UserDetails {
     param (
         [string]$username,
@@ -137,43 +137,75 @@ function Update-UserDetails {
         [string]$email,
         [string]$alias,
         [string]$pin,
-        [string]$cardNumber
+        [string]$cardNumber,
+        [PSCustomObject]$currentUser
     )
 
-    $details = ""
-    if ($fullName) {
-        $details += "&fullName=$($fullName -replace ' ', '%20')"
-    }
-    if ($email) {
-        $details += "&email=$($email -replace ' ', '%20')"
-    }
-    if ($cardNumber) {
-        $details += "&cardId=$($cardNumber)"
-    }
-    if ($pin) {
-        $details += "&pin=$($pin)"
-    }
-
-    $url = "$apiBaseUrl/users/$username?providerId=$providerId$details"
     $headers = @{
         "Authorization" = "Bearer $token"
         "X-Api-Key"     = "$plainApiKey"
     }
 
-    try {
-        Write-Log "Updating user details at URL: $url with headers: $($headers | ConvertTo-Json)"
-        Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
-        Write-Log "Updated user ${username} successfully."
-    } catch {
-        Write-Log "Failed to update user ${username}: $_" -level "ERROR"
-        if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
-            $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-            $responseBody = $reader.ReadToEnd()
-            Write-Log "Error details: $responseBody" -level "ERROR"
+    # Check and update only fields that differ from the current user details
+    if ($fullName -and $fullName -ne $currentUser.fullName) {
+        $url = "$apiBaseUrl/users/$username?providerId=$providerId&fullName=$($fullName -replace ' ', '%20')"
+        try {
+            Write-Log "Updating user's fullName at URL: $url with headers: $($headers | ConvertTo-Json)"
+            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
+            Write-Log "Updated fullName for user ${username} successfully."
+        } catch {
+            Write-Log "Failed to update fullName for user ${username}: $_" -level "ERROR"
+            Log-ErrorDetails
+        }
+    }
+
+    if ($email -and $email -ne $currentUser.email) {
+        $url = "$apiBaseUrl/users/$username?providerId=$providerId&email=$($email -replace ' ', '%20')"
+        try {
+            Write-Log "Updating user's email at URL: $url with headers: $($headers | ConvertTo-Json)"
+            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
+            Write-Log "Updated email for user ${username} successfully."
+        } catch {
+            Write-Log "Failed to update email for user ${username}: $_" -level "ERROR"
+            Log-ErrorDetails
+        }
+    }
+
+    if ($cardNumber -and ($null -eq $currentUser.cards -or $cardNumber -notin $currentUser.cards)) {
+        $url = "$apiBaseUrl/users/$username?providerId=$providerId&cardId=$cardNumber"
+        try {
+            Write-Log "Updating user's cardId at URL: $url with headers: $($headers | ConvertTo-Json)"
+            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
+            Write-Log "Updated cardId for user ${username} successfully."
+        } catch {
+            Write-Log "Failed to update cardId for user ${username}: $_" -level "ERROR"
+            Log-ErrorDetails
+        }
+    }
+
+    if ($pin -and $pin -ne $currentUser.pin) {
+        $url = "$apiBaseUrl/users/$username?providerId=$providerId&pin=$pin"
+        try {
+            Write-Log "Updating user's pin at URL: $url with headers: $($headers | ConvertTo-Json)"
+            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
+            Write-Log "Updated pin for user ${username} successfully."
+        } catch {
+            Write-Log "Failed to update pin for user ${username}: $_" -level "ERROR"
+            Log-ErrorDetails
         }
     }
 }
 
+# Helper function to log error details
+function Log-ErrorDetails {
+    if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
+        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $responseBody = $reader.ReadToEnd()
+        Write-Log "Error details: $responseBody" -level "ERROR"
+    }
+}
+
+# Function to create a new user using query parameters
 # Function to create a new user using query parameters
 function New-User {
     param (
@@ -211,18 +243,13 @@ function New-User {
         Write-Log "Created user ${username} successfully."
     } catch {
         Write-Log "Failed to create user ${username}: $_" -level "ERROR"
-        if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
-            $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-            $responseBody = $reader.ReadToEnd()
-            Write-Log "Error details: $responseBody" -level "ERROR"
-        }
+        Log-ErrorDetails
     }
 }
 
 # Read the CSV file and process each user
 $csvData = Import-Csv -Path $outputCsv
 
-# Track line number for logging
 $lineNumber = 0
 
 foreach ($row in $csvData) {
@@ -244,7 +271,7 @@ foreach ($row in $csvData) {
 
     if ($null -ne $user) {
         # User exists, update details
-        Update-UserDetails -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber
+        Update-UserDetails -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber -currentUser $user
     } else {
         # User does not exist, create new user
         New-User -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber
