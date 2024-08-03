@@ -1,5 +1,5 @@
 # Initialize log file
-$logFilePath = "users_to_sqc.log"
+$logFilePath = "import_users_from_sq6_to_sqc.log"
 if (-not (Test-Path $logFilePath)) {
     $null = New-Item -ItemType File -Path $logFilePath -Force
 }
@@ -21,8 +21,8 @@ Write-Log "Script execution started."
 # Define the path to the configuration file
 $configFilePath = "config.json"
 
-# Function to load configuration
-function Load-Configuration {
+# Function to retrieve configuration
+function Get-Configuration {
     if (-Not (Test-Path $configFilePath)) {
         Write-Log "Configuration file not found. Please run create_config.ps1 to create it." -level "ERROR"
         exit
@@ -42,11 +42,11 @@ function Load-Configuration {
 }
 
 # Load configuration
-$config = Load-Configuration
+$config = Get-Configuration
 
 # Extract configuration values
 $outputCsv = $config.csvFileName
-$providerId = $config.ProviderId
+$providerId = [int]$config.ProviderId # Ensuring providerId is treated as an integer
 $domain = $config.Domain
 $plainApiKey = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString $config.ApiKey)))
 $userid = $config.ApiUsername
@@ -82,7 +82,7 @@ function Get-UserToken {
         password = $password
     }
     try {
-        Write-Log "Requesting user token at URL: $loginUrl with headers: $($headers | ConvertTo-Json) and body: $($body | ConvertTo-Json)"
+        Write-Log "Requesting user token at URL: $loginUrl with masked headers and body."
         $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
         Write-Log "User token obtained successfully."
         return $response.token.access_token
@@ -108,7 +108,7 @@ function Get-UserInformation {
     }
 
     try {
-        Write-Log "Getting user information at URL: $url with headers: $($headers | ConvertTo-Json)"
+        Write-Log "Getting user information at URL: $url with masked headers."
         $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -SkipCertificateCheck
         Write-Log "User information retrieved successfully for ${username}."
         return $response
@@ -129,75 +129,8 @@ function Get-UserInformation {
     }
 }
 
-# Function to update user details one at a time
-function Update-UserDetails {
-    param (
-        [string]$username,
-        [string]$fullName,
-        [string]$email,
-        [string]$alias,
-        [string]$pin,
-        [string]$cardNumber,
-        [PSCustomObject]$currentUser
-    )
-
-    $headers = @{
-        "Authorization" = "Bearer $token"
-        "X-Api-Key"     = "$plainApiKey"
-    }
-
-    # Check and update only fields that differ from the current user details
-    if ($fullName -and $fullName -ne $currentUser.fullName) {
-        $url = "$apiBaseUrl/users/$username?providerId=$providerId&fullName=$($fullName -replace ' ', '%20')"
-        try {
-            Write-Log "Updating user's fullName at URL: $url with headers: $($headers | ConvertTo-Json)"
-            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
-            Write-Log "Updated fullName for user ${username} successfully."
-        } catch {
-            Write-Log "Failed to update fullName for user ${username}: $_" -level "ERROR"
-            Log-ErrorDetails
-        }
-    }
-
-    if ($email -and $email -ne $currentUser.email) {
-        $url = "$apiBaseUrl/users/$username?providerId=$providerId&email=$($email -replace ' ', '%20')"
-        try {
-            Write-Log "Updating user's email at URL: $url with headers: $($headers | ConvertTo-Json)"
-            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
-            Write-Log "Updated email for user ${username} successfully."
-        } catch {
-            Write-Log "Failed to update email for user ${username}: $_" -level "ERROR"
-            Log-ErrorDetails
-        }
-    }
-
-    if ($cardNumber -and ($null -eq $currentUser.cards -or $cardNumber -notin $currentUser.cards)) {
-        $url = "$apiBaseUrl/users/$username?providerId=$providerId&cardId=$cardNumber"
-        try {
-            Write-Log "Updating user's cardId at URL: $url with headers: $($headers | ConvertTo-Json)"
-            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
-            Write-Log "Updated cardId for user ${username} successfully."
-        } catch {
-            Write-Log "Failed to update cardId for user ${username}: $_" -level "ERROR"
-            Log-ErrorDetails
-        }
-    }
-
-    if ($pin -and $pin -ne $currentUser.pin) {
-        $url = "$apiBaseUrl/users/$username?providerId=$providerId&pin=$pin"
-        try {
-            Write-Log "Updating user's pin at URL: $url with headers: $($headers | ConvertTo-Json)"
-            Invoke-RestMethod -Uri $url -Headers $headers -Method Put -SkipCertificateCheck
-            Write-Log "Updated pin for user ${username} successfully."
-        } catch {
-            Write-Log "Failed to update pin for user ${username}: $_" -level "ERROR"
-            Log-ErrorDetails
-        }
-    }
-}
-
-# Helper function to log error details
-function Log-ErrorDetails {
+# Helper function to write error details
+function Write-ErrorDetails {
     if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
         $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
         $responseBody = $reader.ReadToEnd()
@@ -205,45 +138,117 @@ function Log-ErrorDetails {
     }
 }
 
-# Function to create a new user using query parameters
-# Function to create a new user using query parameters
-function New-User {
+# Function to create a new user using form-encoded body
+function Set-User {
     param (
         [string]$username,
         [string]$fullName,
         [string]$email,
-        [string]$alias,
         [string]$pin,
         [string]$cardNumber
     )
 
-    $details = "username=$username&providerId=$providerId"
-    if ($fullName) {
-        $details += "&fullName=$($fullName -replace ' ', '%20')"
-    }
-    if ($email) {
-        $details += "&email=$($email -replace ' ', '%20')"
-    }
-    if ($cardNumber) {
-        $details += "&cardId=$($cardNumber)"
-    }
-    if ($pin) {
-        $details += "&pin=$($pin)"
+    # Prepare the form-encoded body for user creation
+    $detailTypeMap = @{
+        "fullName" = 0
+        "email" = 1
+        "cardNumber" = 4
+        "pin" = 5
     }
 
-    $url = "$apiBaseUrl/users?$details"
+    $body = @()
+    $body += "username=$username"
+    $body += "providerid=$providerId"
+
+    # Add each user detail with its corresponding detailtype and detaildata
+    $details = @{
+        fullName = $fullName
+        email = $email
+        cardNumber = $cardNumber
+        pin = $pin
+    }
+
+    foreach ($key in $details.Keys) {
+        if ($details[$key]) {
+            $detailType = $detailTypeMap[$key]
+            $detailData = $details[$key]
+            $body += "detailtype=$detailType"
+            $body += "detaildata=$detailData"
+        }
+    }
+
+    $bodyString = [String]::Join("&", $body)
+    $url = "$apiBaseUrl/users"
     $headers = @{
         "Authorization" = "Bearer $token"
         "X-Api-Key"     = "$plainApiKey"
     }
 
     try {
-        Write-Log "Creating user at URL: $url with headers: $($headers | ConvertTo-Json)"
-        Invoke-RestMethod -Uri $url -Headers $headers -Method Post -SkipCertificateCheck
+        Write-Log "Sending request for user $username with masked headers."
+        Invoke-RestMethod -Uri $url -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
         Write-Log "Created user ${username} successfully."
     } catch {
         Write-Log "Failed to create user ${username}: $_" -level "ERROR"
-        Log-ErrorDetails
+        Write-ErrorDetails
+    }
+}
+
+# Function to update an existing user using form-encoded body
+function Update-User {
+    param (
+        [string]$username,
+        [string]$currentFullName,
+        [string]$currentEmail,
+        [string[]]$currentCardNumbers,
+        [string]$currentPin,
+        [string]$newFullName,
+        [string]$newEmail,
+        [string]$newCardNumber,
+        [string]$newPin
+    )
+
+    # Prepare the form-encoded body for updating user details
+    $detailTypeMap = @{
+        "fullName" = 0
+        "email" = 1
+        "cardNumber" = 4
+        "pin" = 5
+    }
+
+    $url = "$apiBaseUrl/users/$username"
+    $headers = @{
+        "Authorization" = "Bearer $token"
+        "X-Api-Key"     = "$plainApiKey"
+    }
+
+    # Update each detail type if necessary
+    $details = @{
+        fullName = if ($currentFullName -ne $newFullName) { $newFullName } else { $null }
+        email = if ($currentEmail -ne $newEmail) { $newEmail } else { $null }
+        cardNumber = if ($currentCardNumbers -notcontains $newCardNumber) { $newCardNumber } else { $null }
+        pin = if ($currentPin -ne $newPin) { $newPin } else { $null }
+    }
+
+    foreach ($key in $details.Keys) {
+        if ($details[$key]) {
+            $body = @()
+            $body += "providerid=$providerId"
+            $detailType = $detailTypeMap[$key]
+            $detailData = $details[$key]
+            $body += "detailtype=$detailType"
+            $body += "detaildata=$detailData"
+            $bodyString = [String]::Join("&", $body)
+
+            try {
+                Write-Log "Updating $key for user $username with masked headers."
+                Invoke-RestMethod -Uri $url -Headers $headers -Method Post -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
+                Write-Log "Updated $key for user ${username} successfully."
+            } catch {
+                Write-Log "Failed to update $key for user ${username}: $_" -level "ERROR"
+                Write-ErrorDetails
+            }
+        }
     }
 }
 
@@ -257,7 +262,6 @@ foreach ($row in $csvData) {
     $username = $row.$fieldSelection
     $fullName = $row.full_name
     $email = $row.email
-    $alias = $row.alias
     $pin = if ($row.pin -ne "") { $row.pin } else { $null }
     $cardNumber = if ($row.card_number -ne "") { $row.card_number } else { $null }
 
@@ -267,14 +271,28 @@ foreach ($row in $csvData) {
         continue
     }
 
+    # Get user information
     $user = Get-UserInformation -username $username
 
-    if ($null -ne $user) {
-        # User exists, update details
-        Update-UserDetails -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber -currentUser $user
+    if ($null -eq $user) {
+        # User does not exist, create a new user
+        Set-User -username $username -fullName $fullName -email $email -pin $pin -cardNumber $cardNumber
     } else {
-        # User does not exist, create new user
-        New-User -username $username -fullName $fullName -email $email -alias $alias -pin $pin -cardNumber $cardNumber
+        # User exists, update details
+        $currentFullName = $user.fullName
+        $currentEmail = $user.email
+        $currentCardNumbers = $user.cards
+        $currentPin = $user.pin
+
+        Update-User -username $username `
+                    -currentFullName $currentFullName `
+                    -currentEmail $currentEmail `
+                    -currentCardNumbers $currentCardNumbers `
+                    -currentPin $currentPin `
+                    -newFullName $fullName `
+                    -newEmail $email `
+                    -newCardNumber $cardNumber `
+                    -newPin $pin
     }
 }
 

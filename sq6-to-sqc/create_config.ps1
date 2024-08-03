@@ -8,19 +8,6 @@ if ($PSVersionTable.PSVersion -lt [Version]"7.4") {
     exit
 }
 
-# Function to convert PSCustomObject to hashtable
-function ConvertTo-Hashtable {
-    param (
-        [PSCustomObject]$obj
-    )
-
-    $hash = @{}
-    $obj.PSObject.Properties | ForEach-Object {
-        $hash[$_.Name] = $_.Value
-    }
-    return $hash
-}
-
 # Function to prompt the user for SafeQ6 export configuration
 function Set-SafeQ6Export {
     param (
