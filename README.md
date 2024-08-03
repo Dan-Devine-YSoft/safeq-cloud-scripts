@@ -9,4 +9,5 @@ Please see https://github.com/Dan-Devine-YSoft/safeq-cloud-scripts/wiki for furt
 - **register_current_session_user** - add the current session user from a Windows workstation to a SafeQ Cloud tenancy as a user.  Useful for automation on smaller deployments
 - **document_history** - Export document history into a csv file for reporting purposes.  Uses proper token-based user authentication and allows for extended reporting periods.  Instructions for this script are available here: https://github.com/Dan-Devine-YSoft/safeq-cloud-scripts/wiki/Document-History
 - **document_history_24hrs** - Export document history into a csv file for reporting purposes for the last 24hrs.  Useful for scheduling a nightly export of data
+- **sq6_to_sqc** - Contains several scripts for automation of exporting data from SafeQ6 and importing it into SafeQ Cloud
 
