@@ -3,7 +3,7 @@ $configFilePath = "config.json"
 
 # Check the PowerShell version on Windows
 if ($PSVersionTable.PSVersion -lt [Version]"7.4") {
-    Write-Host "This script is not supported on versions of PowerShell prior to v7.4 on Windows. Please update your version of PowerShell before running this script."
+    Write-Host "This script is not supported on versions of PowerShell prior to v7.4 - please update your version of PowerShell before running this script."
     Write-Host "Details on installing the latest version of PowerShell are available at https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows"
     exit
 }
@@ -15,12 +15,14 @@ function Set-SafeQ6Export {
     )
 
     $config['serverName'] = Read-Host "Enter the SQL Server name (e.g., servername\\instance or servername)"
+    $databasePortPrompt = Read-Host "Enter the database port (press enter for 1433)"
+    $config['sqlPort'] = if ($databasePortPrompt -eq "") { "1433" } else { $databasePortPrompt }
     $databaseNamePrompt = Read-Host "Enter the Database name (press enter for SQDB6)"
     $config['databaseName'] = if ($databaseNamePrompt -eq "") { "SQDB6" } else { $databaseNamePrompt }
     $config['username'] = Read-Host "Enter the SQL Username"
 
     # Security reminder
-    Write-Host "Note: Your password will be stored securely. Ensure that the configuration file is protected from unauthorized access."
+    Write-Host "Note: Your password will be stored securely. Ensure that the configuration file is protected from unauthorised access."
 
     $password = Read-Host "Enter the SQL Password" -AsSecureString
     $config['password'] = $password | ConvertFrom-SecureString
@@ -29,7 +31,7 @@ function Set-SafeQ6Export {
     $plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
 
     # Form the connection string
-    $connectionString = "Server=tcp:$($config.serverName),1433;Database=$($config.databaseName);User Id=$($config.username);Password=$plainPassword;"
+    $connectionString = "Server=tcp:$($config.serverName),$($config.sqlPort);Database=$($config.databaseName);User Id=$($config.username);Password=$plainPassword;"
     $connection = New-Object System.Data.SqlClient.SqlConnection
     $connection.ConnectionString = $connectionString
 
