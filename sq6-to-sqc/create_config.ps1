@@ -1,7 +1,7 @@
 # Define the path to the configuration file
 $configFilePath = "config.json"
 
-# Check PowerShell version on Windows
+# Check the PowerShell version on Windows
 if ($PSVersionTable.PSVersion -lt [Version]"7.4") {
     Write-Host "This script is not supported on versions of PowerShell prior to v7.4 on Windows. Please update your version of PowerShell before running this script."
     Write-Host "Details on installing the latest version of PowerShell are available at https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows"

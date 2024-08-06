@@ -20,7 +20,7 @@ function Get-Configuration {
     return $config
 }
 
-# Load configuration
+# Load the configuration
 $config = Get-Configuration
 
 # Extract configuration values
