@@ -188,6 +188,15 @@ function Set-User {
         Write-Log "Sending request for user $username with masked headers."
         Invoke-RestMethod -Uri $url -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
         Write-Log "Created user ${username} successfully."
+
+        # Record created user ID in users.json
+        $createdUserIds = @($username)
+        $userJsonPath = "users.json"
+        if (Test-Path $userJsonPath) {
+            $existingUserIds = Get-Content -Path $userJsonPath | ConvertFrom-Json
+            $createdUserIds += $existingUserIds
+        }
+        $createdUserIds | ConvertTo-Json | Set-Content -Path $userJsonPath -Force
     } catch {
         Write-Log "Failed to create user ${username}: $_" -level "ERROR"
         Write-ErrorDetails

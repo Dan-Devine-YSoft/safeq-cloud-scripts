@@ -1,7 +1,3 @@
-# To do -
-# 1. check whether device exists first and if it does, then update rather than create
-# 2. assign queue to device
-
 # Initialize log file
 $logFilePath = "import_devices_and_queues_from_sq6_to_sqc.log"
 if (-not (Test-Path $logFilePath)) {
@@ -24,6 +20,8 @@ Write-Log "Script execution started."
 
 # Define the path to the configuration file
 $configFilePath = "config.json"
+$outputPortsJsonPath = "outputports.json"
+$inputPortsJsonPath = "inputports.json"
 
 # Function to retrieve configuration
 function Get-Configuration {
@@ -82,7 +80,7 @@ function Get-UserToken {
         Write-Log "User token obtained successfully."
         return $response.token.access_token
     } catch {
-        Write-Log "Error obtaining user token: $_" -level "ERROR"
+        Write-Log "Error obtaining user token at line $($MyInvocation.ScriptLineNumber): $_" -level "ERROR"
         exit 1
     }
 }
@@ -90,12 +88,79 @@ function Get-UserToken {
 # Get the user token
 $token = Get-UserToken -userid $userid -securePassword $securePassword -plainApiKey $plainApiKey
 
+# Function to retrieve existing output ports
+function Get-ExistingOutputPorts {
+    param (
+        [string]$token,
+        [string]$plainApiKey
+    )
+
+    $headers = @{
+        "Authorization" = "Bearer $token"
+        "X-Api-Key"     = "$plainApiKey"
+    }
+
+    try {
+        Write-Log "Retrieving existing output ports with masked headers."
+        $response = Invoke-RestMethod -Uri $outputPortsUrl -Headers $headers -Method Get -SkipCertificateCheck
+        Write-Log "Successfully retrieved existing output ports."
+
+        # Convert response to hash table using the address as the key
+        $existingOutputPorts = @{}
+        foreach ($port in $response) {
+            $existingOutputPorts[$port.address] = $port.id
+        }
+        return $existingOutputPorts
+    } catch {
+        Write-Log "Failed to retrieve existing output ports at line $($MyInvocation.ScriptLineNumber): $_" -level "ERROR"
+        Write-ErrorDetails
+        return @{}
+    }
+}
+
+# Function to retrieve existing input ports
+function Get-ExistingInputPorts {
+    param (
+        [string]$token,
+        [string]$plainApiKey
+    )
+
+    $headers = @{
+        "Authorization" = "Bearer $token"
+        "X-Api-Key"     = "$plainApiKey"
+    }
+
+    try {
+        Write-Log "Retrieving existing input ports with masked headers."
+        $response = Invoke-RestMethod -Uri $inputPortsUrl -Headers $headers -Method Get -SkipCertificateCheck
+
+        Write-Log "Successfully retrieved existing input ports."
+
+        # Convert response to hash table using the name as the key, filtering only portType 1
+        $existingInputPorts = @{}
+        foreach ($port in $response) {
+            if ($port.portType -eq 1) {
+                $existingInputPorts[$port.name] = $port.id
+            }
+        }
+
+        # Log the existing input ports
+        Write-Log "Existing Input Ports: $($existingInputPorts.Keys -join ', ')"
+
+        return $existingInputPorts
+    } catch {
+        Write-Log "Failed to retrieve existing input ports: $_" -level "ERROR"
+        Write-ErrorDetails
+        return @{}
+    }
+}
+
 # Helper function to write error details
 function Write-ErrorDetails {
     if ($_.Exception.Response -is [System.Net.HttpWebResponse]) {
         $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
         $responseBody = $reader.ReadToEnd()
-        Write-Log "Error details: $responseBody" -level "ERROR"
+        Write-Log "Error details at line $($MyInvocation.ScriptLineNumber): $responseBody" -level "ERROR"
     }
 }
 
@@ -141,7 +206,9 @@ function Set-OutputPort {
         [string]$name,
         [string]$networkAddress,
         [string]$serialNumber,
-        [string]$vendor
+        [string]$vendor,
+        [hashtable]$existingOutputPorts,
+        [ref]$outputPortIds
     )
 
     $vendorParams, $apiVendor = Map-VendorParameters -vendor $vendor
@@ -156,6 +223,15 @@ function Set-OutputPort {
     $body += "porttype=1"
     $body += "printprotocol=0"
 
+    # Check if output port already exists
+    if ($existingOutputPorts.ContainsKey($networkAddress)) {
+        $outputPortId = $existingOutputPorts[$networkAddress]
+        $body += "id=$outputPortId"
+        $logMessage = "Updating output port $name."
+    } else {
+        $logMessage = "Creating output port $name."
+    }
+
     foreach ($key in $vendorParams.Keys) {
         $body += "$key=$($vendorParams[$key])"
     }
@@ -167,26 +243,52 @@ function Set-OutputPort {
     }
 
     try {
-        Write-Log "Sending request for output port $name with masked headers."
-        Invoke-RestMethod -Uri $outputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
-        Write-Log "Created or updated output port $name successfully."
+        Write-Log "$logMessage Sending request with masked headers."
+        $response = Invoke-RestMethod -Uri $outputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
+        Write-Log "Successfully processed output port $name."
+
+        # If it's a new output port, store the ID
+        if (-not $existingOutputPorts.ContainsKey($networkAddress)) {
+            $outputPortId = $response.id
+            $outputPortIds.Value += $outputPortId
+        }
+
+        # Return the ID of the output port
+        return $outputPortId
     } catch {
-        Write-Log "Failed to create or update output port ${name}: $_" -level "ERROR"
+        Write-Log "Failed to process output port ${name} at line $($MyInvocation.ScriptLineNumber): $_" -level "ERROR"
         Write-ErrorDetails
     }
 }
 
-# Function to create input ports
+# Function to create or update input ports and associate with output ports
 function Set-InputPort {
     param (
-        [string]$portName
+        [string]$portName,
+        [string]$outputPortId,
+        [hashtable]$existingInputPorts,
+        [ref]$inputPortIds
     )
+
+    # Log the port name being checked
+    Write-Log "Checking if input port $portName exists."
 
     # Prepare the form-encoded body for input ports
     $body = @()
     $body += "domainname=$domain"
     $body += "portname=$portName"
     $body += "porttype=1"
+    $body += "outputportid=$outputPortId"
+    $body += "portFlags=1"
+
+    # Check if input port already exists
+    if ($existingInputPorts.ContainsKey($portName)) {
+        $inputPortId = $existingInputPorts[$portName]
+        $body += "id=$inputPortId"
+        $logMessage = "Updating input port $portName."
+    } else {
+        $logMessage = "Creating input port $portName."
+    }
 
     $bodyString = [String]::Join("&", $body)
     $headers = @{
@@ -195,17 +297,31 @@ function Set-InputPort {
     }
 
     try {
-        Write-Log "Sending request for input port $portName with masked headers."
-        Invoke-RestMethod -Uri $inputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
-        Write-Log "Created input port $portName successfully."
+        Write-Log "$logMessage Sending request with masked headers."
+        $response = Invoke-RestMethod -Uri $inputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
+        Write-Log "Successfully processed input port $portName."
+
+        # If it's a new input port, store the ID
+        if (-not $existingInputPorts.ContainsKey($portName)) {
+            $inputPortId = $response.id
+            $inputPortIds.Value += $inputPortId
+        }
     } catch {
-        Write-Log "Failed to create input port ${portName}: $_" -level "ERROR"
+        Write-Log "Failed to process input port ${portName}: $_" -level "ERROR"
         Write-ErrorDetails
     }
 }
 
 # Read the CSV file and process each device
 $csvData = Import-Csv -Path $config.csvDeviceFileName
+
+# Retrieve existing ports
+$existingOutputPorts = Get-ExistingOutputPorts -token $token -plainApiKey $plainApiKey
+$existingInputPorts = Get-ExistingInputPorts -token $token -plainApiKey $plainApiKey
+
+# Initialize arrays to store new IDs
+$outputPortIds = [ref]@()
+$inputPortIds = [ref]@()
 
 foreach ($row in $csvData) {
     $name = $row.name
@@ -214,19 +330,27 @@ foreach ($row in $csvData) {
     $serialNumber = $row.serial_number
     $vendor = $row.vendor
 
-    # Set output port
-    Set-OutputPort -name $name -networkAddress $networkAddress -serialNumber $serialNumber -vendor $vendor
+    # Set output port and retrieve output port ID
+    $outputPortId = Set-OutputPort -name $name -networkAddress $networkAddress -serialNumber $serialNumber -vendor $vendor -existingOutputPorts $existingOutputPorts -outputPortIds $outputPortIds
 
-    # Set input ports for each direct queue
+    # Set input ports for each direct queue and associate with the output port
     $queueIndex = 1
     while ($row.PSObject.Properties["direct_queue_$queueIndex"]) {
         $portName = $row.PSObject.Properties["direct_queue_$queueIndex"].Value
         if ($portName) {
-            Set-InputPort -portName $portName
+            Set-InputPort -portName $portName -outputPortId $outputPortId -existingInputPorts $existingInputPorts -inputPortIds $inputPortIds
         }
         $queueIndex++
     }
 }
 
+# Save the new output and input port IDs to JSON files
+$outputPortIds.Value | ConvertTo-Json | Set-Content -Path $outputPortsJsonPath
+$inputPortIds.Value | ConvertTo-Json | Set-Content -Path $inputPortsJsonPath
+
+Write-Log "Output port IDs saved to $outputPortsJsonPath"
+Write-Log "Input port IDs saved to $inputPortsJsonPath"
+
 # Log completion
 Write-Log "Script execution completed."
+
