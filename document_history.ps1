@@ -310,6 +310,21 @@ if ($startDate -gt $endDate) {
     exit 1
 }
 
+# Convert start and end dates to UTC
+$utcStartDate = [DateTime]::SpecifyKind($startDate.Date, [DateTimeKind]::Utc)
+$utcEndDate = [DateTime]::SpecifyKind($endDate.Date, [DateTimeKind]::Utc)
+
+# If end date is today, use current UTC time
+$currentUtc = [DateTime]::UtcNow
+if ($utcEndDate.Date -eq $currentUtc.Date) {
+    $utcEndDate = $currentUtc
+} else {
+    # Set to end of day if not today
+    $utcEndDate = $utcEndDate.AddDays(1).AddSeconds(-1)
+}
+
+Write-Log "Using UTC time range: $($utcStartDate.ToString("yyyy-MM-dd HH:mm:ss")) to $($utcEndDate.ToString("yyyy-MM-dd HH:mm:ss"))"
+
 # Status code mapping - this converts the numeric status code to the corresponding status name
 $statusMapping = @{
     0 = "Ready"
@@ -339,20 +354,19 @@ if (-not (Test-Path $csvPath)) {
 }
 
 # Initialize the start date for the first batch of data retrieval
-$currentStartDate = $startDate
+$currentStartDate = $utcStartDate
 
 # Retrieve and write document history in batches
-while ($currentStartDate -lt $endDate) {
+while ($currentStartDate -lt $utcEndDate) {
     $currentEndDate = $currentStartDate.AddDays(6)
-    if ($currentEndDate -gt $endDate) {
-        $currentEndDate = $endDate
+    if ($currentEndDate -gt $utcEndDate) {
+        $currentEndDate = $utcEndDate
     }
-    $formattedStartDate = $currentStartDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-    $formattedEndDate = $currentEndDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    $formattedStartDate = $currentStartDate.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    $formattedEndDate = $currentEndDate.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
     $apiUrlBase = "$apiBaseUrl/documents/history?datestart=${formattedStartDate}&dateend=${formattedEndDate}&maxrecords=${maxRecords}"
     Get-DocumentHistory -apiUrlBase $apiUrlBase -token $token -statusMapping $statusMapping
     $currentStartDate = $currentEndDate.AddSeconds(1) # Ensure no overlap
 }
 
 Write-Log "Document history retrieval and CSV export completed."
-
