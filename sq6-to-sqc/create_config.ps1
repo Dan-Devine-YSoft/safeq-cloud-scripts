@@ -1,9 +1,9 @@
 # Define the path to the configuration file
 $configFilePath = "config.json"
 
-# Check PowerShell version on Windows
+# Check the PowerShell version on Windows
 if ($PSVersionTable.PSVersion -lt [Version]"7.4") {
-    Write-Host "This script is not supported on versions of PowerShell prior to v7.4 on Windows. Please update your version of PowerShell before running this script."
+    Write-Host "This script is not supported on versions of PowerShell prior to v7.4 - please update your version of PowerShell before running this script."
     Write-Host "Details on installing the latest version of PowerShell are available at https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows"
     exit
 }
@@ -15,12 +15,14 @@ function Set-SafeQ6Export {
     )
 
     $config['serverName'] = Read-Host "Enter the SQL Server name (e.g., servername\\instance or servername)"
+    $databasePortPrompt = Read-Host "Enter the database port (press enter for 1433)"
+    $config['sqlPort'] = if ($databasePortPrompt -eq "") { "1433" } else { $databasePortPrompt }
     $databaseNamePrompt = Read-Host "Enter the Database name (press enter for SQDB6)"
     $config['databaseName'] = if ($databaseNamePrompt -eq "") { "SQDB6" } else { $databaseNamePrompt }
     $config['username'] = Read-Host "Enter the SQL Username"
 
     # Security reminder
-    Write-Host "Note: Your password will be stored securely. Ensure that the configuration file is protected from unauthorized access."
+    Write-Host "Note: Your password will be stored securely. Ensure that the configuration file is protected from unauthorised access."
 
     $password = Read-Host "Enter the SQL Password" -AsSecureString
     $config['password'] = $password | ConvertFrom-SecureString
@@ -29,7 +31,7 @@ function Set-SafeQ6Export {
     $plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
 
     # Form the connection string
-    $connectionString = "Server=tcp:$($config.serverName),1433;Database=$($config.databaseName);User Id=$($config.username);Password=$plainPassword;"
+    $connectionString = "Server=tcp:$($config.serverName),$($config.sqlPort);Database=$($config.databaseName);User Id=$($config.username);Password=$plainPassword;"
     $connection = New-Object System.Data.SqlClient.SqlConnection
     $connection.ConnectionString = $connectionString
 
@@ -38,40 +40,44 @@ function Set-SafeQ6Export {
         $connection.Open()
         Write-Host "Connection to SQL Server successful."
 
-        # Create the SQL command to get distinct non-empty 'sign' values
-        $command = $connection.CreateCommand()
-        $command.CommandText = "SELECT DISTINCT sign FROM tenant_1.users WHERE sign IS NOT NULL AND sign <> ''"
+        # Query for user export confirmation
+        $exportUsers = Read-Host "Will you be exporting user information? (y/n)"
 
-        try {
-            $reader = $command.ExecuteReader()
-            Write-Host "Query executed successfully."
-        } catch {
-            Write-Error "Error executing SQL query: $_"
-            $connection.Close()
-            return
-        }
+        if ($exportUsers -eq "y") {
+            # Create the SQL command to get distinct non-empty 'sign' values
+            $command = $connection.CreateCommand()
+            $command.CommandText = "SELECT DISTINCT sign FROM tenant_1.users WHERE sign IS NOT NULL AND sign <> ''"
 
-        $signValues = @()
-        while ($reader.Read()) {
-            $signValues += $reader["sign"]
-        }
+            try {
+                $reader = $command.ExecuteReader()
+                Write-Host "User query executed successfully."
+            } catch {
+                Write-Error "Error executing SQL query for users: $_"
+                $connection.Close()
+                return
+            }
 
-        $reader.Close()
+            $signValues = @()
+            while ($reader.Read()) {
+                $signValues += $reader["sign"]
+            }
 
-        if ($signValues.Count -eq 0) {
-            Write-Host "No valid 'sign' values found in the database."
-            $connection.Close()
-            exit
-        }
+            $reader.Close()
 
-        Write-Host "Select the Authentication Source:"
-        $i = 1
-        $signValues | ForEach-Object { Write-Host "$i. $_"; $i++ }
-        $selection = Read-Host "Enter the number of the Authentication Source"
-        $config['authSource'] = $signValues[$selection - 1]
+            if ($signValues.Count -eq 0) {
+                Write-Host "No valid 'sign' values found in the database."
+                $connection.Close()
+                exit
+            }
 
-        # Retrieve sample data including all columns for the final CSV output
-        $command.CommandText = @"
+            Write-Host "Select the Authentication Source:"
+            $i = 1
+            $signValues | ForEach-Object { Write-Host "$i. $_"; $i++ }
+            $selection = Read-Host "Enter the number of the Authentication Source"
+            $config['authSource'] = $signValues[$selection - 1]
+
+            # Retrieve sample user data including all columns for the final CSV output
+            $command.CommandText = @"
 SELECT TOP 5
     u.login,
     u.name + ' ' + u.surname AS full_name,
@@ -90,49 +96,143 @@ LEFT JOIN tenant_1.users_aliases ua ON u.id = ua.user_id
 LEFT JOIN tenant_1.users_cards uc ON u.id = uc.user_id
 WHERE u.sign = '$($config.authSource)'
 "@
-        try {
-            $reader = $command.ExecuteReader()
-        } catch {
-            Write-Error "Error executing SQL query for sample data: $_"
-            $connection.Close()
-            return
-        }
+            try {
+                $reader = $command.ExecuteReader()
+            } catch {
+                Write-Error "Error executing SQL query for user sample data: $_"
+                $connection.Close()
+                return
+            }
 
-        $sampleData = @()
-        while ($reader.Read()) {
-            $sampleData += [PSCustomObject]@{
-                login        = $reader["login"]
-                full_name    = $reader["full_name"]
-                email        = $reader["email"]
-                alias        = $reader["alias"]
-                pin          = $reader["pin"]
-                card_number  = $reader["card_number"]
+            $sampleData = @()
+            while ($reader.Read()) {
+                $sampleData += [PSCustomObject]@{
+                    login        = $reader["login"]
+                    full_name    = $reader["full_name"]
+                    email        = $reader["email"]
+                    alias        = $reader["alias"]
+                    pin          = $reader["pin"]
+                    card_number  = $reader["card_number"]
+                }
+            }
+
+            $reader.Close()
+
+            # Display sample user data and prompt for confirmation
+            Write-Host "Sample user data:"
+            $sampleData | Format-Table -AutoSize
+            $confirmation = Read-Host "Above is a sample of what will be exported for users. Does it look correct? (y/n)"
+
+            if ($confirmation -eq "y") {
+                # Prompt for the CSV file name
+                $csvFileNamePrompt = Read-Host "Enter the name of the CSV file for users (press enter to use sq6UserExport.csv)"
+                $config['csvFileName'] = if ($csvFileNamePrompt -eq "") { "sq6UserExport.csv" } else { $csvFileNamePrompt }
+
+                Write-Host "Configuration for SafeQ6 user export saved."
+            } else {
+                Write-Host "Starting over with new user configuration..."
+                if (Test-Path $configFilePath) {
+                    Remove-Item -Path $configFilePath -Force
+                }
+                $config.Clear()  # Clear existing configuration in memory
+                return
             }
         }
 
-        $reader.Close()
+        # Query for device export confirmation
+        $exportDevices = Read-Host "Will you be exporting device information? (y/n)"
+
+        if ($exportDevices -eq "y") {
+            # Retrieve sample device data
+            $command.CommandText = @"
+SELECT d.name, d.network_address, d.network_port, d.location, t.vendor, t.serial_number, q.name as direct_queue
+FROM tenant_1.devices d
+LEFT JOIN tenant_1.terminals t ON d.id = t.device_id
+LEFT JOIN tenant_1.direct_queues q ON d.id = q.device_id
+WHERE d.status = 'ACTIVE'
+"@
+
+            try {
+                $reader = $command.ExecuteReader()
+            } catch {
+                Write-Error "Error executing SQL query for device sample data: $_"
+                $connection.Close()
+                return
+            }
+
+            $devices = @{}
+            $queueMap = @{}
+
+            while ($reader.Read()) {
+                $deviceName = $reader["name"]
+                $queueName = $reader["direct_queue"]
+
+                if (-not $devices[$deviceName]) {
+                    $device = [PSCustomObject]@{
+                        name            = $deviceName
+                        network_address = $reader["network_address"]
+                        network_port    = $reader["network_port"]
+                        location        = $reader["location"]
+                        vendor          = $reader["vendor"]
+                        serial_number   = $reader["serial_number"]
+                    }
+                    $devices[$deviceName] = $device
+                    $queueMap[$deviceName] = @()
+                }
+
+                if ($queueName) {
+                    $queueMap[$deviceName] += $queueName
+                }
+            }
+
+            $reader.Close()
+
+            # Generate sample device data with dynamic columns for queues
+            $sampleData = $devices.Values | ForEach-Object {
+                $device = $_
+                $queues = $queueMap[$device.name]
+                $queueColumns = @{}
+                for ($i = 0; $i -lt $queues.Count; $i++) {
+                    $queueColumns["direct_queue_$($i + 1)"] = $queues[$i]
+                }
+                $newDevice = [PSCustomObject]@{
+                    name            = $device.name
+                    network_address = $device.network_address
+                    network_port    = $device.network_port
+                    location        = $device.location
+                    vendor          = $device.vendor
+                    serial_number   = $device.serial_number
+                }
+
+                foreach ($key in $queueColumns.Keys) {
+                    Add-Member -InputObject $newDevice -NotePropertyName $key -NotePropertyValue $queueColumns[$key]
+                }
+                $newDevice
+            }
+
+            # Display sample device data and prompt for confirmation
+            Write-Host "Sample device data:"
+            $sampleData | Format-Table -AutoSize
+            $confirmation = Read-Host "Above is a sample of what will be exported for devices.  Additional direct queues for a device will be handled.  Does the data look correct? (y/n)"
+
+            if ($confirmation -eq "y") {
+                # Prompt for the CSV file name for devices
+                $csvFileNamePrompt = Read-Host "Enter the name of the CSV file for devices (press enter to use sq6DeviceExport.csv)"
+                $config['csvDeviceFileName'] = if ($csvFileNamePrompt -eq "") { "sq6DeviceExport.csv" } else { $csvFileNamePrompt }
+
+                Write-Host "Configuration for SafeQ6 device export saved."
+            } else {
+                Write-Host "Starting over with new device configuration..."
+                if (Test-Path $configFilePath) {
+                    Remove-Item -Path $configFilePath -Force
+                }
+                $config.Clear()  # Clear existing configuration in memory
+                return
+            }
+        }
+
         $connection.Close()
-
-        # Display sample data and prompt for confirmation
-        Write-Host "Sample data:"
-        $sampleData | Format-Table -AutoSize
-        $confirmation = Read-Host "Above is a sample of what will be exported. Please confirm if it looks correct? (y/n)"
-
-        if ($confirmation -eq "y") {
-            # Prompt for the CSV file name
-            $csvFileNamePrompt = Read-Host "Enter the name of the CSV file for users (press enter to use sq6UserExport.csv)"
-            $config['csvFileName'] = if ($csvFileNamePrompt -eq "") { "sq6UserExport.csv" } else { $csvFileNamePrompt }
-
-            Write-Host "Configuration for SafeQ6 export saved."
-            $config | Select-Object serverName, databaseName, username, authSource, csvFileName
-        } else {
-            Write-Host "Starting over with new configuration..."
-            if (Test-Path $configFilePath) {
-                Remove-Item -Path $configFilePath -Force
-            }
-            $config.Clear()  # Clear existing configuration in memory
-            return
-        }
+        Write-Host "Database connection closed."
 
     } catch {
         Write-Error "An error occurred while connecting to the SQL Server: $_"
@@ -145,38 +245,6 @@ function Set-SafeQCloudImport {
     param (
         [hashtable]$config
     )
-
-    if (-not $config.ContainsKey('csvFileName') -or -not $config['csvFileName']) {
-        $addCsv = Read-Host "No CSV filename found in config.json - would you like to add a new CSV to import data from? (y/n)"
-        if ($addCsv -eq 'y') {
-            # List CSV files in the current directory
-            $csvFiles = Get-ChildItem -Path . -Filter *.csv
-            if ($csvFiles.Count -eq 0) {
-                Write-Host "No CSV files found in the current directory."
-                return
-            }
-
-            Write-Host "Select the CSV file you want to use:"
-            $i = 1
-            foreach ($file in $csvFiles) {
-                Write-Host "$i. $($file.Name)"
-                $i++
-            }
-
-            $selection = Read-Host "Enter the number of the CSV file"
-            $selectedFile = $csvFiles[$selection - 1].Name
-
-            $config['csvFileName'] = $selectedFile
-            Write-Host "CSV file selected: $selectedFile"
-
-            # Save the configuration immediately after selecting the CSV file
-            $config | ConvertTo-Json -Depth 32 | Set-Content -Path $configFilePath -Force
-            Write-Host "CSV filename saved to $configFilePath."
-        } else {
-            Write-Host "Returning to the main menu."
-            return
-        }
-    }
 
     $config['ProviderId'] = Read-Host "Enter the Provider ID"
     $config['Domain'] = Read-Host "Enter your SafeQ Cloud domain (e.g., customer.au.ysoft.cloud)"
@@ -193,7 +261,7 @@ function Set-SafeQCloudImport {
     $config['ApiPassword'] = $secureApiPassword | ConvertFrom-SecureString
 
     Write-Host "Configuration for SafeQ Cloud import saved."
-    $config | ConvertTo-Json -Depth 32 | Set-Content -Path $configFilePath -Force
+    $config | Select-Object ProviderId, Domain, ApiUsername
 }
 
 # Main configuration function
@@ -202,6 +270,7 @@ function Save-Configuration {
 
     if (Test-Path $configFilePath) {
         $config = Get-Content -Path $configFilePath | ConvertFrom-Json
+        $config = ConvertTo-Hashtable -obj $config
     }
 
     # Loop to keep presenting the menu until the user decides to exit
