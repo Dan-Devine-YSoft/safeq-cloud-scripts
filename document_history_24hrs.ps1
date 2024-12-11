@@ -1,6 +1,6 @@
-$apiKey = "addapikeyhere" # API key requires ViewReport rights
-$domain = "customerdomain" # Add customer domain eg customer.au.ysoft.cloud
-$csvPath = "document_history.csv" # Define a name for the CSV file
+$apiKey = "apikeyhere" # API key requires ViewReport rights
+$domain = "customerdomainhere" # Add customer domain eg customer.au.ysoft.cloud
+$csvPath = "document_history_24.csv" # Define a name for the CSV file
 $maxRecords = "2000" # Define maximum number of records returned, must be between 200 and 2000
 
 # Status code mapping - this converts the numeric status code to the corresponding status name
@@ -76,7 +76,7 @@ try {
         }
 
         Write-Host "Getting records from API, please wait... (Page $pageCount)"
-        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey }
+        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey } -SkipCertificateCheck
 
         if (-not $response -or -not $response.documents) {
             Write-Host "No documents found or invalid response."
