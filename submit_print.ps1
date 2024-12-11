@@ -244,8 +244,8 @@ function Put-PrintJob {
     try {
         $response = $httpClient.PutAsync($apiUrl, $multipartContent).Result
         if ($response.IsSuccessStatusCode) {
-            $responseContent = $response.Content.ReadAsStringAsync().Result
-            Write-Log "Print job submitted successfully. Response: $responseContent"
+            $responseContent = $response.Content.ReadAsStringAsync().Result | ConvertFrom-Json | ConvertTo-Json -Depth 10
+            Write-Log "Print job submitted successfully. Response:`n$responseContent"
         } else {
             Write-Log "Error submitting print job. Status: $($response.StatusCode). Response: $($response.Content.ReadAsStringAsync().Result)" -level "ERROR"
         }
