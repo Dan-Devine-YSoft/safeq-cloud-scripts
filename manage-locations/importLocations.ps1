@@ -11,7 +11,7 @@ $baseURL = "https://$($apiConfig.cloudTenancyAddress):7300/api/v1"
 
 # Download existing locations from API
 Write-Host "Fetching existing locations..."
-$response = Invoke-RestMethod -Uri "$baseURL/locations" -Method Get -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json' -SkipCertificateCheck
+$response = Invoke-RestMethod -Uri "$baseURL/locations" -Method Get -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json'
 $existingLocations = @{}
 
 if ($response) {

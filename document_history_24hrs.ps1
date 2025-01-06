@@ -76,7 +76,7 @@ try {
         }
 
         Write-Host "Getting records from API, please wait... (Page $pageCount)"
-        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey } -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey }
 
         if (-not $response -or -not $response.documents) {
             Write-Host "No documents found or invalid response."

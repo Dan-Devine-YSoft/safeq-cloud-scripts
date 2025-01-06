@@ -83,7 +83,7 @@ function Get-UserToken {
     }
     try {
         Write-Log "Requesting user token at URL: $loginUrl with masked headers and body."
-        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body
         Write-Log "User token obtained successfully."
         return $response.token.access_token
     } catch {
@@ -109,7 +109,7 @@ function Get-UserInformation {
 
     try {
         Write-Log "Getting user information at URL: $url with masked headers."
-        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
         Write-Log "User information retrieved successfully for ${username}."
         return $response
     } catch {
@@ -186,7 +186,7 @@ function Set-User {
 
     try {
         Write-Log "Sending request for user $username with masked headers."
-        Invoke-RestMethod -Uri $url -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
+        Invoke-RestMethod -Uri $url -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString
         Write-Log "Created user ${username} successfully."
 
         # Record created user ID in users.json
@@ -251,7 +251,7 @@ function Update-User {
 
             try {
                 Write-Log "Updating $key for user $username with masked headers."
-                Invoke-RestMethod -Uri $url -Headers $headers -Method Post -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
+                Invoke-RestMethod -Uri $url -Headers $headers -Method Post -ContentType "application/x-www-form-urlencoded" -Body $bodyString
                 Write-Log "Updated $key for user ${username} successfully."
             } catch {
                 Write-Log "Failed to update $key for user ${username}: $_" -level "ERROR"

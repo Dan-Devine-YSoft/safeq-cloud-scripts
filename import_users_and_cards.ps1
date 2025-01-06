@@ -73,7 +73,7 @@ $data | ForEach-Object {
 
     try {
         Write-Output "Sending request for user $($_.username) : $bodyString"
-        $response = Invoke-RestMethod -Uri $apiUrl -Method Put -ContentType "application/x-www-form-urlencoded" -Headers @{ "X-Api-Key" = $apiKey } -Body $bodyString -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $apiUrl -Method Put -ContentType "application/x-www-form-urlencoded" -Headers @{ "X-Api-Key" = $apiKey } -Body $bodyString
         Write-Output "Success for user $($_.username)"
         Start-Sleep -Seconds 1
     } catch {

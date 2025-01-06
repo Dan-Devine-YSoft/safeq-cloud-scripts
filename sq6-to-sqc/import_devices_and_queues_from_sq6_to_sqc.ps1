@@ -76,7 +76,7 @@ function Get-UserToken {
     }
     try {
         Write-Log "Requesting user token with masked headers and body."
-        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body
         Write-Log "User token obtained successfully."
         return $response.token.access_token
     } catch {
@@ -102,7 +102,7 @@ function Get-ExistingOutputPorts {
 
     try {
         Write-Log "Retrieving existing output ports with masked headers."
-        $response = Invoke-RestMethod -Uri $outputPortsUrl -Headers $headers -Method Get -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $outputPortsUrl -Headers $headers -Method Get
         Write-Log "Successfully retrieved existing output ports."
 
         # Convert response to hash table using the address as the key
@@ -132,7 +132,7 @@ function Get-ExistingInputPorts {
 
     try {
         Write-Log "Retrieving existing input ports with masked headers."
-        $response = Invoke-RestMethod -Uri $inputPortsUrl -Headers $headers -Method Get -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $inputPortsUrl -Headers $headers -Method Get
 
         Write-Log "Successfully retrieved existing input ports."
 
@@ -184,7 +184,7 @@ function Map-VendorParameters {
     param (
         [string]$vendor
     )
-    $apiVendor = $vendorConversion[$vendor]    
+    $apiVendor = $vendorConversion[$vendor]
     $parameters = @{}
 
     if ($vendor -eq "RICOH") {
@@ -244,7 +244,7 @@ function Set-OutputPort {
 
     try {
         Write-Log "$logMessage Sending request with masked headers."
-        $response = Invoke-RestMethod -Uri $outputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $outputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString
         Write-Log "Successfully processed output port $name."
 
         # If it's a new output port, store the ID
@@ -298,7 +298,7 @@ function Set-InputPort {
 
     try {
         Write-Log "$logMessage Sending request with masked headers."
-        $response = Invoke-RestMethod -Uri $inputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $inputPortsUrl -Headers $headers -Method Put -ContentType "application/x-www-form-urlencoded" -Body $bodyString
         Write-Log "Successfully processed input port $portName."
 
         # If it's a new input port, store the ID

@@ -8,5 +8,5 @@ $headers = @{
 $apiUrl = "https://CUSTOMER_DOMAIN:7300/api/v1/users"
 
 $currentUsername = [Environment]::UserName
-$response = Invoke-RestMethod -Uri $apiUrl -Method Put -Headers $headers -Body "username=$currentUsername" -ContentType "application/x-www-form-urlencoded" -SkipCertificateCheck
+$response = Invoke-RestMethod -Uri $apiUrl -Method Put -Headers $headers -Body "username=$currentUsername" -ContentType "application/x-www-form-urlencoded"
 Write-Output $response

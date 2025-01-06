@@ -179,7 +179,7 @@ function Get-UserToken {
     }
     try {
         Write-Log "Requesting user token..."
-        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body
         return $response.token.access_token
     } catch {
         Write-Log "Error obtaining user token: $_" -level "ERROR"

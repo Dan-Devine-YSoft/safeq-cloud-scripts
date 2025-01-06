@@ -24,7 +24,7 @@ if (Test-Path .\locations.json) {
 foreach ($id in $json.Keys) {
     try {
         # Retrieve location details from API
-        $response = Invoke-RestMethod -Uri "$baseURL/locations/$id" -Method Get -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json' -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri "$baseURL/locations/$id" -Method Get -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json'
 
         # Process identifiers based on locationType
         foreach ($identifier in $response.identifiers) {

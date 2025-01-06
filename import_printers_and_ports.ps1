@@ -41,7 +41,7 @@ $data = Import-Csv -Path $csvFilePath -Delimiter $csvDelimiter
 
 #- Deal with Duplicates -#
 function PortAddressExists($portAddress) {
-    $existingPorts = Invoke-RestMethod -Uri $apiOutputPortUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey } -SkipCertificateCheck
+    $existingPorts = Invoke-RestMethod -Uri $apiOutputPortUrl -Method Get -Headers @{ "X-Api-Key" = $apiKey }
     return $existingPorts | Where-Object { $_.address -eq $portAddress }
 }
 #- End Deal with Duplicates -#
@@ -89,7 +89,7 @@ $data | ForEach-Object {
         try {
             Write-Output "Creating printer port for $($_.portName) : $bodyString"
             # Create the port and store the API response in the $response variable
-            $response = Invoke-RestMethod -Uri $apiOutputPortUrl -Method Put -ContentType "application/x-www-form-urlencoded" -Headers @{ "X-Api-Key" = $apiKey } -Body $bodyString -SkipCertificateCheck
+            $response = Invoke-RestMethod -Uri $apiOutputPortUrl -Method Put -ContentType "application/x-www-form-urlencoded" -Headers @{ "X-Api-Key" = $apiKey } -Body $bodyString
             # Extract the port ID into the $responseId variable
             $responseId = $response.id
             # Add the port ID to the bodyInputPort array as an additional parameter
@@ -98,7 +98,7 @@ $data | ForEach-Object {
             Start-Sleep -Seconds 1
             Write-Output "Creating direct print queue for $($_.portName) : $bodyInputPortString"
             # Create the direct print queue for the previously created port
-            Invoke-Restmethod -Uri $apiInputPortUrl -Method Put -ContentType "application/x-www-form-urlencoded" -Headers @{ "X-Api-Key" = $apiKey} -Body $bodyInputPortString -SkipCertificateCheck
+            Invoke-Restmethod -Uri $apiInputPortUrl -Method Put -ContentType "application/x-www-form-urlencoded" -Headers @{ "X-Api-Key" = $apiKey} -Body $bodyInputPortString
             Write-Output "Direct print queue for $($_.portName) successfully created"
             Start-Sleep -Seconds 1
         } catch {

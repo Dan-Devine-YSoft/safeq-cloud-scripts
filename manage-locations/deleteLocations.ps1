@@ -42,7 +42,7 @@ foreach ($id in $keysToDelete) {
 
     try {
         # Attempt API deletion
-        $response = Invoke-RestMethod -Uri "$baseURL/locations/$idString" -Method Delete -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json' -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri "$baseURL/locations/$idString" -Method Delete -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json'
 
         if ($response.errorCode -eq 0) {
             Write-Host "Successfully deleted location with ID: $idString"

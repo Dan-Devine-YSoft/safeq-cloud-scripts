@@ -23,7 +23,7 @@ $baseURL = "https://$($apiConfig.cloudTenancyAddress):7300/api/v1"
 
 # Download existing locations from API
 Write-Host "Fetching existing locations..."
-$response = Invoke-RestMethod -Uri "$baseURL/locations" -Method Get -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json' -SkipCertificateCheck
+$response = Invoke-RestMethod -Uri "$baseURL/locations" -Method Get -Headers @{"X-Api-Key"=$apiKey} -ContentType 'application/json'
 $existingLocations = @{}
 
 if ($response) {
@@ -92,7 +92,7 @@ foreach ($group in $groupedData) {
         $body = $location | ConvertTo-Json -Depth 10
 
         try {
-            $response = Invoke-RestMethod -Uri "$baseURL/locations/$id" -Method Put -Headers @{"X-Api-Key"=$apiKey} -Body $body -ContentType 'application/json' -SkipCertificateCheck
+            $response = Invoke-RestMethod -Uri "$baseURL/locations/$id" -Method Put -Headers @{"X-Api-Key"=$apiKey} -Body $body -ContentType 'application/json'
             $json[$id.ToString()] = $location
             Write-Host "Updated location '$locationName' - location ID: $id"
             Add-Content -Path $logFile -Value "Updated: $locationName - ID $id"
@@ -106,7 +106,7 @@ foreach ($group in $groupedData) {
         $body = $location | ConvertTo-Json -Depth 10
 
         try {
-            $response = Invoke-RestMethod -Uri "$baseURL/locations" -Method Post -Headers @{"X-Api-Key"=$apiKey} -Body $body -ContentType 'application/json' -SkipCertificateCheck
+            $response = Invoke-RestMethod -Uri "$baseURL/locations" -Method Post -Headers @{"X-Api-Key"=$apiKey} -Body $body -ContentType 'application/json'
             $json[$response.id.ToString()] = $location
             Write-Host "Added location '$locationName' - location ID: $($response.id)"
             Add-Content -Path $logFile -Value "Added: $locationName - ID $($response.id)"

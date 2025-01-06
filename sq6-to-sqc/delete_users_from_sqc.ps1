@@ -83,7 +83,7 @@ function Get-UserToken {
     }
     try {
         Write-Log "Requesting user token."
-        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body
         Write-Log "User token obtained successfully."
         return $response.token.access_token
     } catch {
@@ -120,7 +120,7 @@ foreach ($row in $csvData) {
 
     try {
         Write-Log "Deleting user $username."
-        Invoke-RestMethod -Uri $url -Headers $headers -Method Delete -SkipCertificateCheck
+        Invoke-RestMethod -Uri $url -Headers $headers -Method Delete
         Write-Log "Deleted user ${username} successfully."
     } catch {
         Write-Log "Failed to delete user ${username}: $_" -level "ERROR"

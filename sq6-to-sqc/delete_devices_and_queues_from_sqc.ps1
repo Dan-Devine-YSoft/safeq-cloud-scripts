@@ -74,7 +74,7 @@ function Get-UserToken {
     }
     try {
         Write-Log "Requesting user token with masked headers and body."
-        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body -SkipCertificateCheck
+        $response = Invoke-RestMethod -Uri $loginUrl -Method Post -Headers $headers -ContentType "application/x-www-form-urlencoded" -Body $body
         Write-Log "User token obtained successfully."
         return $response.token.access_token
     } catch {
@@ -109,7 +109,7 @@ function Delete-InputPorts {
         $inputPortUrl = "$apiBaseUrl/inputports/$inputPortId"
         try {
             Write-Log "Deleting input port ID $inputPortId."
-            Invoke-RestMethod -Uri $inputPortUrl -Headers $headers -Method Delete -SkipCertificateCheck
+            Invoke-RestMethod -Uri $inputPortUrl -Headers $headers -Method Delete
             Write-Log "Successfully deleted input port ID $inputPortId."
         } catch {
             Write-Log "Failed to delete input port ID $inputPortId at line $($MyInvocation.ScriptLineNumber): $_" -level "ERROR"
@@ -141,7 +141,7 @@ function Delete-OutputPorts {
         $outputPortUrl = "$apiBaseUrl/outputports/$outputPortId"
         try {
             Write-Log "Deleting output port ID $outputPortId."
-            Invoke-RestMethod -Uri $outputPortUrl -Headers $headers -Method Delete -SkipCertificateCheck
+            Invoke-RestMethod -Uri $outputPortUrl -Headers $headers -Method Delete
             Write-Log "Successfully deleted output port ID $outputPortId."
         } catch {
             Write-Log "Failed to delete output port ID $outputPortId at line $($MyInvocation.ScriptLineNumber): $_" -level "ERROR"

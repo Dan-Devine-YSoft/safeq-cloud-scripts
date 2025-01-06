@@ -6,5 +6,5 @@ $headers = @{
     'X-Api-Key' = $apiKey
 }
 
-$response = Invoke-RestMethod -Uri $apiUrl -Method Post -Headers $headers -Body ('cardid=' +$cardId) -ContentType 'application/x-www-form-urlencoded' -SkipCertificateCheck
+$response = Invoke-RestMethod -Uri $apiUrl -Method Post -Headers $headers -Body ('cardid=' +$cardId) -ContentType 'application/x-www-form-urlencoded'
 $response
