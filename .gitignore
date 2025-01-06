@@ -1,4 +1,4 @@
 .vscode/settings.json
-*.json
-*.csv
-*.log
+**/*.json
+**/*.csv
+**/*.log
