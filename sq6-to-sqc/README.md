@@ -1,24 +1,33 @@
-# Script set for migration of data from SafeQ6 to SafeQ Cloud
+# 🔄 SafeQ6 to SafeQ Cloud Migration Scripts
 
-## PowerShell 7 Required
+A comprehensive set of PowerShell scripts to facilitate data migration from YSoft SafeQ6 to YSoft SafeQ Cloud.
 
-Please see [further details](https://github.com/Dan-Devine-YSoft/safeq-cloud-scripts/wiki)
+## ⚡ Prerequisites
 
-This folder contains several scripts designed to assist with migration from YSoft SafeQ6 to YSoft SafeQ Cloud.
+- PowerShell 7 or higher required
+- For detailed requirements and setup instructions, see our [Wiki Documentation](https://github.com/Dan-Devine-YSoft/safeq-cloud-scripts/wiki)
 
-### create_config
-This script configures all parameters required for each other script in this folder.  Run this first.
-### export_users_from_sq6
-This script exports user details including username, email, card number, alias and pin and prepares them for importing into SafeQ Cloud
-### import_users_to_sqc
-This script uses the previously exported user information from SafeQ6 to import user information into SafeQ Cloud
-### delete_users_from_sqc
-This script deletes user information from SafeQ Cloud based on the previously exported user information
-### export_devices_from_sq6
-This script exports devices and direct queues from SafeQ6 and prepares them for importing into SafeQ Cloud
-### import_devices_and_queues_to_sqc
-This script users the previously exported device information from SafeQ6 to import device information into SafeQ Cloud
-### delete_devices_and_queues_from_sqc
-This script deletes devices and queues from SafeQ Cloud based on the previously exported device information
+## 📋 Scripts Overview
 
-Further detail on each script is available in the wiki.
+### Configuration
+| Script | Description |
+|--------|-------------|
+| `create_config` | 🔧 Initial setup script that configures all required parameters for other scripts. **Run this first!** |
+
+### User Management
+| Script | Description |
+|--------|-------------|
+| `export_users_from_sq6` | 📤 Exports user details (username, email, card number, alias, PIN) from SafeQ6 |
+| `import_users_to_sqc` | 📥 Imports previously exported user data into SafeQ Cloud |
+| `delete_users_from_sqc` | 🗑️ Removes user information from SafeQ Cloud based on export data |
+
+### Device Management  
+| Script | Description |
+|--------|-------------|
+| `export_devices_from_sq6` | 📤 Exports devices and direct queues from SafeQ6 |
+| `import_devices_and_queues_to_sqc` | 📥 Imports previously exported device data into SafeQ Cloud |
+| `delete_devices_and_queues_from_sqc` | 🗑️ Removes devices and queues from SafeQ Cloud based on export data |
+
+## 📚 Documentation
+
+For detailed instructions and usage examples for each script, please refer to our [Wiki Documentation](https://github.com/Dan-Devine-YSoft/safeq-cloud-scripts/wiki).

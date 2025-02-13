@@ -1,51 +1,65 @@
-# Manage Locations Scripts
+# 🌍 Manage Locations Scripts
 
-This is a set of scripts designed to manage locations and related settings within YSoft SafeQ Cloud. The scripts are designed to be run from a Windows machine and require PowerShell 5.1 or later.
+> PowerShell scripts for managing locations and settings in YSoft SafeQ Cloud
 
-Run `manageLocations.ps1` to provide a menu for all options.
+## 📋 Prerequisites
 
----
+- Windows machine
+- PowerShell 5.1 or later
+- YSoft SafeQ Cloud API access
 
-## 1. Import Locations
+## 🚀 Getting Started
 
-This option will import any locations you have in the API currently and store them in a local file called `locations.json`. This then allows you to, for example, delete all existing locations using option 4.
+Run `manageLocations.ps1` to access the interactive menu with all available options.
 
----
+## 📦 Features
 
-## 2. Create Locations
+### 1. Import Locations 📥
 
-This option will create new locations for you based on the contents of a CSV file. The CSV file needs to contain the following columns. Note that there can be other columns as well; the script will search for the presence of the below specifically:
+Imports existing locations from the API and stores them in `locations.json` for later use. This is useful for operations like bulk deletion.
 
-- **locationName**: Must exist
+### 2. Create Locations ➕
 
-In addition, one of the following columns must exist:
+Creates new locations based on a CSV file input. The CSV must contain:
 
-- **locationGatewayData**: The IP address of the gateway for the location
-- **locationSubnetData**: The subnet mask in CIDR format
-- **locationIpRangeData**: An IP range
-- **locationWifiData**: An SSID for a WiFi network
+#### Required Column
+- `locationName`
 
-These can be combined. For example, you can have a location with a subnet mask and a WiFi network. If you need multiple entries of a type per location, e.g., multiple subnet masks for a single location, then create additional rows in the CSV for each subnet mask.
+#### At least one of these columns
+| Column | Description |
+|--------|-------------|
+| `locationGatewayData` | Gateway IP address |
+| `locationSubnetData` | Subnet mask (CIDR format) |
+| `locationIpRangeData` | IP range |
+| `locationWifiData` | WiFi SSID |
 
-The script will prompt you for the CSV name. The script will also store all new locations in a file called `locations.json`. This file can be used to delete all locations created by the script using option 4.
+> 💡 **Tip:** You can combine multiple data types for a single location. For multiple entries of the same type (e.g., multiple subnets), create additional rows in the CSV.
 
----
+The script will:
+1. Prompt for CSV filename
+2. Create locations
+3. Store new locations in `locations.json`
 
-## 3. Export Locations
+### 3. Export Locations 📤
 
-This option will query the API for the latest location list and then export all locations to a CSV file.
+Queries the API for current locations and exports them to a CSV file.
 
----
+### 4. Delete Locations 🗑️
 
-## 4. Delete Locations
+Deletes all locations stored in `locations.json` from the API.
 
-This option will delete all locations from the API based on the contents of `locations.json`.
+### 5. Set up API ⚙️
 
----
+Configures API connection settings:
+- SafeQ Cloud tenancy address
+- API key
 
-## 5. Set up API
+> ⚠️ **Security Note:** Settings are stored in plain text in `apiconfig.json`. For security, consider deleting this file after use and recreating when needed.
 
-This option will request a SafeQ Cloud tenancy address and API key. Note that these details will be stored in plain text, in a file called `apiconfig.json`. If the `.json` file cannot be secured, then it is recommended to delete this file after using this script set. You can always create it again later using option 5.
+## 🤝 Contributing
 
----
+Feel free to submit issues and enhancement requests.
 
+## 📄 License
+
+[Add your license information here]
