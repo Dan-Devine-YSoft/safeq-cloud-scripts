@@ -190,70 +190,52 @@ function Get-UserToken {
 function Put-PrintJob {
     param (
         [string]$apiBaseUrl,
-        [string]$token,
+        [string]$token, 
         [string]$username,
         [string]$portname,
         [string]$title,
-        [string]$filePath,
-        [int]$providerid = 0,  # Optional
-        [int]$copies = 1,  # Optional
-        [bool]$grayscale = $false,  # Optional
-        [int]$duplex = 0,  # Optional: 0=simplex, 1=long edge, 2=short edge
-        [string]$outputpagesize = "Original",  # Optional
-        [int]$pageorientation = 0,  # Optional: 0=portrait, 1=landscape
-        [int]$scale = 100  # Optional
+        [string]$filePath
     )
 
     $apiUrl = "$apiBaseUrl/documents"
+    
+    # Build form data boundary
+    $boundary = [System.Guid]::NewGuid().ToString()
+    $LF = "`r`n"
+    
+    # Create form data content
+    $bodyLines = (
+        "--$boundary",
+        "Content-Disposition: form-data; name=`"username`"$LF",
+        $username,
+        "--$boundary",
+        "Content-Disposition: form-data; name=`"portname`"$LF", 
+        $portname,
+        "--$boundary",
+        "Content-Disposition: form-data; name=`"title`"$LF",
+        $title,
+        "--$boundary",
+        "Content-Disposition: form-data; name=`"data`"; filename=`"$(Split-Path $filePath -Leaf)`"",
+        "Content-Type: application/octet-stream$LF",
+        [System.IO.File]::ReadAllBytes($filePath),
+        "--$boundary--"
+    )
+
+    # Headers
     $headers = @{
-        "X-Api-Key"      = $plainApiKey
-        "Authorization"  = "Bearer $token"
-    }
-
-    if (-not (Test-Path $filePath)) {
-        Write-Log "Error: File $filePath not found." -level "ERROR"
-        return
-    }
-
-    # Prepare the HTTP content
-    $multipartContent = [System.Net.Http.MultipartFormDataContent]::new()
-    $multipartContent.Add([System.Net.Http.StringContent]::new($username), "username")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($portname), "portname")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($title), "title")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($providerid.ToString()), "providerid")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($copies.ToString()), "copies")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($grayscale.ToString().ToLower()), "grayscale")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($duplex.ToString()), "duplex")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($outputpagesize), "outputpagesize")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($pageorientation.ToString()), "pageorientation")
-    $multipartContent.Add([System.Net.Http.StringContent]::new($scale.ToString()), "scale")
-
-    # Add the file content
-    $fileStream = [System.IO.File]::OpenRead($filePath)
-    $fileContent = [System.Net.Http.StreamContent]::new($fileStream)
-    $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::new("application/octet-stream")
-    $multipartContent.Add($fileContent, "data", [System.IO.Path]::GetFileName($filePath))
-
-    # Perform the API request
-    $httpClient = [System.Net.Http.HttpClient]::new()
-    foreach ($key in $headers.Keys) {
-        $httpClient.DefaultRequestHeaders.Add($key, $headers[$key])
+        "X-Api-Key" = $plainApiKey
+        "Authorization" = "Bearer $token"  
+        "Content-Type" = "multipart/form-data; boundary=$boundary"
     }
 
     Write-Log "Submitting print job '$title' for user '$username'..."
+
     try {
-        $response = $httpClient.PutAsync($apiUrl, $multipartContent).Result
-        if ($response.IsSuccessStatusCode) {
-            $responseContent = $response.Content.ReadAsStringAsync().Result | ConvertFrom-Json | ConvertTo-Json -Depth 10
-            Write-Log "Print job submitted successfully. Response:`n$responseContent"
-        } else {
-            Write-Log "Error submitting print job. Status: $($response.StatusCode). Response: $($response.Content.ReadAsStringAsync().Result)" -level "ERROR"
-        }
-    } catch {
-        Write-Log "Error during API request: $_" -level "ERROR"
-    } finally {
-        $fileStream.Dispose()
-        $httpClient.Dispose()
+        $response = Invoke-RestMethod -Uri $apiUrl -Method Put -Headers $headers -Body $bodyLines -ContentType "multipart/form-data"
+        Write-Log "Print job submitted successfully. Response: $($response | ConvertTo-Json)"
+    }
+    catch {
+        Write-Log "Error submitting print job: $_" -level "ERROR" 
     }
 }
 
