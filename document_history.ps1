@@ -211,25 +211,28 @@ function ConvertFrom-ApiResponse {
     )
     $timeZoneInfo = [TimeZoneInfo]::Local
     $documentDetails = foreach ($doc in $response.documents) {
-        $epochStart = [DateTime]::UnixEpoch.AddMilliseconds($doc.dateTime)
-        $localDateTime = [TimeZoneInfo]::ConvertTimeFromUtc($epochStart, $timeZoneInfo)
-        $fullDateTime = $localDateTime.ToString("yyyy-MM-dd HH:mm:ss")
         $statusCode = [int]$doc.status
-        $statusString = $statusMapping[$statusCode] -replace 'Null','Unknown status code'
-        $documentName = if ([string]::IsNullOrWhiteSpace($doc.documentName)) { "NoDocumentName" } else { $doc.documentName }
-        [PSCustomObject]@{
-            fullDateTime = $fullDateTime
-            date = $localDateTime.ToString("yyyy-MM-dd")
-            time = $localDateTime.ToString("HH:mm:ss")
-            userName = $doc.userName
-            documentName = $documentName
-            jobType = $doc.jobType
-            outputPortName = $doc.outputPortName
-            grayscale = $doc.grayscale
-            colorPages = $doc.colorPages
-            totalPages = $doc.totalPages
-            paperSize = $doc.paperSize
-            status = $statusString
+        # Filter to only include 'Printed' status (1) and exclude 'Deleted' status (2)
+        if ($statusCode -eq 1) {
+            $epochStart = [DateTime]::UnixEpoch.AddMilliseconds($doc.dateTime)
+            $localDateTime = [TimeZoneInfo]::ConvertTimeFromUtc($epochStart, $timeZoneInfo)
+            $fullDateTime = $localDateTime.ToString("yyyy-MM-dd HH:mm:ss")
+            $statusString = $statusMapping[$statusCode] -replace 'Null','Unknown status code'
+            $documentName = if ([string]::IsNullOrWhiteSpace($doc.documentName)) { "NoDocumentName" } else { $doc.documentName }
+            [PSCustomObject]@{
+                fullDateTime = $fullDateTime
+                date = $localDateTime.ToString("yyyy-MM-dd")
+                time = $localDateTime.ToString("HH:mm:ss")
+                userName = $doc.userName
+                documentName = $documentName
+                jobType = $doc.jobType
+                outputPortName = $doc.outputPortName
+                grayscale = $doc.grayscale
+                colorPages = $doc.colorPages
+                totalPages = $doc.totalPages
+                paperSize = $doc.paperSize
+                status = $statusString
+            }
         }
     }
     return $documentDetails
